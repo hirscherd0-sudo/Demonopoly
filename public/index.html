@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monopoly des Wahnsinns - Online</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* Gleiche Styles wie vorher */
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Nosifer&family=Special+Elite&display=swap');
+        body { background-color: #050505; color: #d1d1d1; font-family: 'Special Elite', cursive; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; overflow-x: hidden; }
+        .horror-title { font-family: 'Nosifer', cursive; color: #8b0000; text-shadow: 0 0 10px rgba(139, 0, 0, 0.7); }
+        #board-container { width: 100%; max-width: 600px; aspect-ratio: 1 / 1; position: relative; margin: 10px auto; }
+        #board { display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); gap: 2px; width: 100%; height: 100%; background: #1a1a1a; border: 4px solid #333; box-shadow: 0 0 50px rgba(0,0,0,1); }
+        #center-area { grid-column: 2 / 8; grid-row: 2 / 8; background: radial-gradient(circle, #1a0000 0%, #000 80%); display: flex; align-items: center; justify-content: center; z-index: 5; border: 1px solid #300; }
+        .cell { background: #0d0d0d; border: 1px solid #222; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: clamp(0.4rem, 1.2vw, 0.7rem); text-align: center; position: relative; padding: 2px; z-index: 10; }
+        .cell-header { position: absolute; top: 0; width: 100%; height: 20%; }
+        .player { width: clamp(18px, 4vw, 28px); height: clamp(18px, 4vw, 28px); border-radius: 50%; position: absolute; z-index: 100; display: flex; align-items: center; justify-content: center; font-size: clamp(10px, 2.5vw, 18px); color: white; border: 2px solid #555; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .player-1 { background: #8b0000; box-shadow: 0 0 10px #f00; }
+        .player-2 { background: #004d40; box-shadow: 0 0 10px #0f9; }
+        .sanity-bar { width: 100%; height: 8px; background: #222; border-radius: 4px; overflow: hidden; margin-top: 2px; border: 1px solid #444; }
+        .sanity-fill { height: 100%; transition: width 0.5s ease; }
+        .p1-fill { background: linear-gradient(90deg, #400, #f00); }
+        .p2-fill { background: linear-gradient(90deg, #020, #0f9); }
+        .btn-dice { background: #4a0000; border: 2px solid #8b0000; color: #eee; padding: 10px 20px; font-family: 'Creepster', cursive; font-size: clamp(1rem, 4vw, 1.5rem); cursor: pointer; }
+        .btn-dice:disabled { opacity: 0.3; cursor: not-allowed; border-color: #333; }
+        #log { height: 100px; width: 100%; max-width: 600px; overflow-y: auto; background: rgba(0,0,0,0.9); border: 1px solid #444; margin-top: 10px; padding: 8px; font-size: 0.75rem; color: #aaa; }
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+        .owner-indicator { position: absolute; bottom: 2px; right: 2px; font-weight: bold; font-size: 10px; }
+        .actions-area { display: none; gap: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1 class="horror-title text-2xl md:text-3xl mb-2">MONOPOLY ONLINE</h1>
+    <div id="status-display" class="text-yellow-500 font-bold mb-2">Verbinde...</div>
+
+    <div class="grid grid-cols-2 gap-4 w-full max-w-[600px] mb-2 text-xs">
+        <div id="p1-stats" class="p-2 border border-red-900 bg-black/80">
+            <div class="flex justify-between"><span>P1 (Rot)</span> <span id="p1-sanity">100</span></div>
+            <div class="sanity-bar"><div id="p1-bar" class="sanity-fill p1-fill" style="width: 100%;"></div></div>
+        </div>
+        <div id="p2-stats" class="p-2 border border-teal-900 bg-black/80">
+            <div class="flex justify-between"><span>P2 (Grün)</span> <span id="p2-sanity">100</span></div>
+            <div class="sanity-bar"><div id="p2-bar" class="sanity-fill p2-fill" style="width: 100%;"></div></div>
+        </div>
+    </div>
+
+    <div id="board-container">
+        <div id="board">
+            <div id="center-area">
+                <svg width="60%" height="60%" viewBox="0 0 512 512" fill="#400">
+                    <path d="M256 16c-106 0-192 86-192 192 0 62 30 117 76 151l-20 73c-3 10 4 20 15 20h242c11 0 18-10 15-20l-20-73c46-34 76-89 76-151 0-106-86-192-192-192z"/>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex flex-col items-center mt-4">
+        <div id="turn-indicator" class="text-sm font-bold text-gray-500 mb-2">Warte auf Spieler...</div>
+        
+        <div id="dice-area">
+             <button id="dice-btn" class="btn-dice" onclick="sendRoll()">WÜRFELN</button>
+        </div>
+
+        <div id="buy-area" class="actions-area">
+            <p id="prop-info" class="mb-2">Kaufen?</p>
+            <button class="bg-green-900 text-white p-2 border border-green-500" onclick="sendBuy()">KAUFEN</button>
+            <button class="bg-gray-800 text-white p-2 border border-gray-500" onclick="sendEndTurn()">WEITER</button>
+        </div>
+    </div>
+
+    <div id="log"></div>
+
+    <script>
+        const socket = io();
+        let myId = null;
+        let localState = null;
+
+        // Board Setup (Statisch)
+        const boardData = [
+            { name: "START", type: "start" }, { name: "Keller", color: "#300" }, { name: "Schicksal" }, { name: "Dachboden", color: "#300" },
+            { name: "Blutopfer" }, { name: "Ruine", color: "#330" }, { name: "Flüstergang" }, { name: "VERLASSEN" },
+            { name: "Moor", color: "#030" }, { name: "Schicksal" }, { name: "Wald", color: "#030" }, { name: "Krypta", color: "#003" },
+            { name: "Irrlichter" }, { name: "Kanzlei", color: "#003" }, { name: "RUHEPOL" }, { name: "Labor", color: "#303" },
+            { name: "Schicksal" }, { name: "Klinik", color: "#303" }, { name: "Tribut" }, { name: "Kathedrale", color: "#444" },
+            { name: "Stimmen" }, { name: "HÖLLENTOR" }, { name: "Abgrund", color: "#222" }, { name: "Schicksal" },
+            { name: "Leere", color: "#111" }, { name: "Zitadelle", color: "#000" }, { name: "Flüsterstimmen" }, { name: "ENDSTATION", color: "#800" }
+        ];
+
+        const gridMap = [
+            [7,7],[7,6],[7,5],[7,4],[7,3],[7,2],[7,1],
+            [7,0],[6,0],[5,0],[4,0],[3,0],[2,0],[1,0],
+            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],
+            [0,7],[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]
+        ];
+
+        function initBoard() {
+            const board = document.getElementById('board');
+            boardData.forEach((f, i) => {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                const pos = gridMap[i];
+                cell.style.gridRow = pos[0] + 1;
+                cell.style.gridColumn = pos[1] + 1;
+                if (f.color) {
+                    const h = document.createElement('div');
+                    h.className = 'cell-header'; h.style.background = f.color;
+                    cell.appendChild(h);
+                }
+                const n = document.createElement('div'); n.innerText = f.name; cell.appendChild(n);
+                const owner = document.createElement('div'); owner.id = `owner-${i}`; owner.className = 'owner-indicator'; cell.appendChild(owner);
+                board.appendChild(cell);
+            });
+
+            [1,2].forEach(id => {
+                const token = document.createElement('div');
+                token.id = `token-${id}`;
+                token.className = `player player-${id}`;
+                token.innerText = id === 1 ? '👁' : '🕯';
+                document.getElementById('board-container').appendChild(token);
+            });
+        }
+        initBoard();
+
+        // --- SOCKET LOGIC ---
+
+        socket.on('init', (data) => {
+            myId = data.id;
+            document.getElementById('status-display').innerText = `Du bist Spieler ${myId} (${myId===1?'Rot':'Grün'})`;
+        });
+
+        socket.on('full', () => {
+            document.body.innerHTML = "<h1 style='color:red; text-align:center;'>Spiel ist voll!</h1>";
+        });
+
+        socket.on('diceRolled', (data) => {
+             // Kleine Animation könnte hier hin
+        });
+
+        socket.on('log', (msg) => {
+            const l = document.getElementById('log');
+            const d = document.createElement('div');
+            d.innerText = "> " + msg;
+            l.prepend(d);
+        });
+
+        socket.on('gameOver', (winnerId) => {
+             alert(`SPIEL VORBEI! Spieler ${winnerId} hat überlebt.`);
+        });
+
+        socket.on('updateState', (state) => {
+            localState = state;
+            updateUI(state);
+        });
+
+        function updateUI(state) {
+            // Update Player Bars
+            state.players.forEach(p => {
+                document.getElementById(`p${p.id}-sanity`).innerText = Math.floor(p.sanity);
+                document.getElementById(`p${p.id}-bar`).style.width = Math.max(0, p.sanity) + '%';
+                
+                // Positionen
+                const token = document.getElementById(`token-${p.id}`);
+                const target = gridMap[p.pos];
+                const boardEl = document.getElementById('board');
+                const cellSize = boardEl.offsetWidth / 8;
+                const offset = (state.players[0].pos === state.players[1].pos) ? (p.id === 1 ? -6 : 6) : 0;
+                token.style.top = (target[0] * cellSize + (cellSize/2) - (token.offsetHeight/2) + offset) + 'px';
+                token.style.left = (target[1] * cellSize + (cellSize/2) - (token.offsetWidth/2) + offset) + 'px';
+
+                // Besitz anzeigen
+                p.owned.forEach(idx => {
+                    const el = document.getElementById(`owner-${idx}`);
+                    el.innerText = `P${p.id}`;
+                    el.style.color = p.id === 1 ? '#f00' : '#0f9';
+                });
+            });
+
+            // Wer ist dran?
+            const turnText = document.getElementById('turn-indicator');
+            const isMyTurn = (state.players[state.currentPlayerIdx].id === myId);
+            const diceBtn = document.getElementById('dice-btn');
+            const buyArea = document.getElementById('buy-area');
+
+            // Reset UI
+            buyArea.style.display = 'none';
+            diceBtn.disabled = true;
+
+            if (!state.gameStarted) {
+                turnText.innerText = "Warte auf Spieler 2...";
+            } else {
+                turnText.innerText = isMyTurn ? "DU BIST DRAN!" : `Spieler ${state.currentPlayerIdx + 1} ist dran...`;
+                turnText.style.color = isMyTurn ? "#0f0" : "#555";
+                
+                if (isMyTurn) {
+                    const currentField = boardData[state.players[state.currentPlayerIdx].pos];
+                    
+                    // Prüfen ob wir gerade gelandet sind und kaufen können
+                    const amOwner = state.players.some(p => p.owned.includes(state.players[state.currentPlayerIdx].pos));
+                    
+                    // Sehr vereinfachte Logik für das UI: Wenn Property & Nicht besessen & Geld da -> Zeige Kauf Button
+                    // Im echten Spiel müsste der Server einen Status senden "waitingForDecision"
+                    if (currentField.type === 'prop' && !amOwner) {
+                         // Wir tun so, als ob wir nach dem Würfeln in diesen Zustand kommen
+                         // Da wir hier keine komplexe State-Machine haben, prüfen wir einfach:
+                         // Wenn wir "gerade" gewürfelt haben? (Nein, das ist zu komplex für dieses Beispiel).
+                         // Wir machen es einfach: Der Dice Button ist immer da, wenn man dran ist, AUßER man muss kaufen.
+                         // Für dieses Tutorial: Würfeln -> Server bewegt -> Server zieht Miete ab ODER wartet auf Kauf.
+                         // Da der Server im Code oben bei "Kauf möglich" auf input wartet, müssen wir das hier aktivieren:
+                         // (Erkennung: Spieler ist dran, Feld ist Property, keiner besitzt es)
+                         
+                         diceBtn.style.display = 'none';
+                         buyArea.style.display = 'flex';
+                         document.getElementById('prop-info').innerText = `${currentField.name} kaufen?`;
+                    } else {
+                         diceBtn.style.display = 'block';
+                         diceBtn.disabled = false;
+                    }
+                } else {
+                    diceBtn.style.display = 'block';
+                }
+            }
+        }
+
+        function sendRoll() { socket.emit('rollDice'); }
+        function sendBuy() { socket.emit('buyProperty'); }
+        function sendEndTurn() { socket.emit('endTurn'); }
+
+        window.onresize = () => localState && updateUI(localState);
+    </script>
+</body>
+</html>
+
