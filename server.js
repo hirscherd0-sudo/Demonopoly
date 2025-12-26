@@ -4,21 +4,9 @@ const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const path = require('path');
 
-// Statische Dateien aus dem 'public' Ordner bereitstellen
 app.use(express.static(path.join(__dirname, 'public')));
 
-// SPIELZUSTAND (Global auf dem Server)
-let gameState = {
-    players: [
-        { id: 1, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], name: "Spieler 1" },
-        { id: 2, socketId: null, pos: 0, sanity: 100, icon: '🕯', owned: [], name: "Spieler 2" }
-    ],
-    currentPlayerIdx: 0,
-    gameStarted: false,
-    log: []
-};
-
-// Das Spielfeld (Daten müssen auf dem Server bekannt sein)
+// DAS SPIELFELD (Datenkonsistenz)
 const boardData = [
     { name: "START", type: "start" },
     { name: "Keller", type: "prop", price: 15, rent: 4, color: "#300", group: "brown" },
@@ -50,154 +38,183 @@ const boardData = [
     { name: "ENDSTATION", type: "prop", price: 80, rent: 40, color: "#800", group: "final" }
 ];
 
+// GLOBALE SPIELVARIANBLEN
+let gameState = {
+    players: [
+        { id: 1, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], active: false },
+        { id: 2, socketId: null, pos: 0, sanity: 100, icon: '🕯', owned: [], active: false }
+    ],
+    currentPlayerIdx: 0,
+    gameStarted: false,
+    turnPhase: 'WAITING', // 'ROLL', 'DECISION', 'ANIMATING'
+    lastRoll: 0,
+    currentFieldPrice: 0 // Hilfsvariable für Kaufentscheidungen
+};
+
 io.on('connection', (socket) => {
-    console.log('Ein Benutzer hat sich verbunden:', socket.id);
+    console.log('Verbindung:', socket.id);
 
     // Spieler zuweisen
-    let myPlayerIndex = -1;
+    let myPIdx = -1;
     if (!gameState.players[0].socketId) {
         gameState.players[0].socketId = socket.id;
-        myPlayerIndex = 0;
+        gameState.players[0].active = true;
+        myPIdx = 0;
     } else if (!gameState.players[1].socketId) {
         gameState.players[1].socketId = socket.id;
-        myPlayerIndex = 1;
-        gameState.gameStarted = true; // Spiel startet wenn P2 da ist
-        io.emit('log', "Spieler 2 ist beigetreten. Der Wahnsinn beginnt!");
+        gameState.players[1].active = true;
+        myPIdx = 1;
+        gameState.gameStarted = true;
+        gameState.turnPhase = 'ROLL';
+        io.emit('log', { msg: "Spieler 2 ist da. Der Wahnsinn beginnt!", color: "#fff" });
     } else {
-        socket.emit('full', true); // Spiel ist voll
+        socket.emit('full');
         return;
     }
 
-    // Dem Client sagen, wer er ist
-    socket.emit('init', { 
-        id: myPlayerIndex + 1, 
-        state: gameState 
-    });
-
-    // Allen sagen, dass sich was geändert hat
+    socket.emit('init', { id: myPIdx + 1, state: gameState });
     io.emit('updateState', gameState);
 
-    // --- EVENTS VOM CLIENT ---
+    // --- EVENTS ---
 
     socket.on('rollDice', () => {
-        // Ist der Spieler dran?
-        if (gameState.currentPlayerIdx !== myPlayerIndex) return;
         if (!gameState.gameStarted) return;
+        if (gameState.currentPlayerIdx !== myPIdx) return;
+        if (gameState.turnPhase !== 'ROLL') return;
 
+        gameState.turnPhase = 'ANIMATING'; // Sperren während Animation
         const roll = Math.floor(Math.random() * 6) + 1;
-        const player = gameState.players[myPlayerIndex];
+        gameState.lastRoll = roll;
         
-        // Logik auf dem Server berechnen
-        let newPos = (player.pos + roll) % boardData.length;
-        
-        // START passiert?
-        if (newPos < player.pos) {
-            player.sanity = Math.min(100, player.sanity + 20); // Etwas weniger Heilung für mehr Spannung
-        }
-        
-        player.pos = newPos;
-        
-        io.emit('diceRolled', { roll: roll, playerId: player.id });
-        io.emit('log', `P${player.id} würfelt eine ${roll}.`);
-        
-        // Landung berechnen (vereinfacht für Server)
-        handleLanding(player, newPos);
-        
-        io.emit('updateState', gameState);
+        // 1. Allen sagen: Animation starten (Dauer ca 2 sek)
+        io.emit('animDice', { roll: roll, pId: myPIdx + 1 });
+
+        // 2. Verzögert die Logik ausführen
+        setTimeout(() => {
+            const p = gameState.players[myPIdx];
+            let newPos = (p.pos + roll) % boardData.length;
+
+            // Start passiert?
+            if (newPos < p.pos) {
+                p.sanity = Math.min(100, p.sanity + 50);
+                io.emit('log', { msg: `P${p.id} passiert START (+50 Sanity).`, color: "#0f0" });
+            }
+
+            p.pos = newPos;
+            handleLanding(p);
+        }, 2000); // Muss zur Client-Animation passen
     });
 
-    socket.on('buyProperty', () => {
-        if (gameState.currentPlayerIdx !== myPlayerIndex) return;
-        const p = gameState.players[myPlayerIndex];
+    socket.on('decision', (decision) => {
+        // decision: 'buy' oder 'pass'
+        if (gameState.currentPlayerIdx !== myPIdx) return;
+        if (gameState.turnPhase !== 'DECISION') return;
+
+        const p = gameState.players[myPIdx];
         const field = boardData[p.pos];
 
-        if (field.type === 'prop' && p.sanity > field.price) {
-             // Check if already owned (Sicherheit)
-             const alreadyOwned = gameState.players.some(pl => pl.owned.includes(p.pos));
-             if(!alreadyOwned) {
-                 p.sanity -= field.price;
-                 p.owned.push(p.pos);
-                 io.emit('log', `P${p.id} kauft ${field.name}.`, "#0f0");
-                 nextTurn();
-             }
+        if (decision === 'buy') {
+            if (p.sanity > field.price) {
+                p.sanity -= field.price;
+                p.owned.push(p.pos);
+                io.emit('log', { msg: `P${p.id} versiegelt ${field.name}.`, color: "#0f0" });
+            }
+        } else {
+            io.emit('log', { msg: `P${p.id} zieht weiter.`, color: "#aaa" });
         }
-    });
-
-    socket.on('endTurn', () => {
-        if (gameState.currentPlayerIdx !== myPlayerIndex) return;
-        nextTurn();
+        
+        endTurn();
     });
 
     socket.on('disconnect', () => {
-        console.log('User disconnected');
-        gameState.players[myPlayerIndex].socketId = null;
+        gameState.players[myPIdx].socketId = null;
+        gameState.players[myPIdx].active = false;
         gameState.gameStarted = false;
-        io.emit('log', `P${myPlayerIndex + 1} hat die Verbindung verloren.`, "#f00");
-        // Reset optionale hier einfügen wenn gewünscht
+        gameState.turnPhase = 'WAITING';
+        // Reset Spielstand (optional)
+        io.emit('log', { msg: `Spieler ${myPIdx+1} weg. Spiel pausiert.`, color: "#f00" });
+        io.emit('updateState', gameState);
     });
 });
 
-function handleLanding(player, pos) {
-    const field = boardData[pos];
-    // Logik prüfen
+function handleLanding(p) {
+    const field = boardData[p.pos];
+    io.emit('updateState', gameState); // Position aktualisieren
+
     if (field.type === 'prop') {
-        const owner = gameState.players.find(p => p.owned.includes(pos));
-        if (owner && owner.id !== player.id) {
-            // Miete zahlen
-            const rent = field.rent; // Hier könnte man noch Farbgruppen-Logik einbauen
-            player.sanity -= rent;
-            owner.sanity += rent / 2; // Kleiner Bonus für Vermieter
-            io.emit('log', `P${player.id} zahlt ${rent} Miete an P${owner.id}.`, "#f44");
-            nextTurn();
-        } else if (owner && owner.id === player.id) {
-            io.emit('log', `P${player.id} ruht sich im eigenen Haus aus.`);
-            nextTurn();
+        const owner = gameState.players.find(pl => pl.owned.includes(p.pos));
+        if (owner) {
+            if (owner.id === p.id) {
+                io.emit('log', { msg: `P${p.id}: Eigener Zufluchtsort.`, color: "#aaa" });
+                endTurn();
+            } else {
+                // Miete zahlen (vereinfacht ohne Farbgruppen für den Moment)
+                const rent = field.rent;
+                p.sanity -= rent;
+                owner.sanity = Math.min(100, owner.sanity + rent);
+                io.emit('log', { msg: `P${p.id} zahlt ${rent} Sanity an P${owner.id}.`, color: "#f44" });
+                checkGameOver();
+                endTurn();
+            }
         } else {
-            // Kaufen möglich -> Warten auf Client Input
-            // Wir beenden den Zug NICHT hier, sondern warten auf 'buyProperty' oder 'endTurn' vom Client
+            // Niemand besitzt es -> Kaufentscheidung
+            if (p.sanity > field.price) {
+                gameState.turnPhase = 'DECISION';
+                gameState.currentFieldPrice = field.price;
+                io.emit('updateState', gameState); // UI zeigt Modal
+                // Wir warten nun auf socket.on('decision')
+            } else {
+                io.emit('log', { msg: `${field.name}: Zu wenig Sanity zum Versiegeln.`, color: "#888" });
+                endTurn();
+            }
         }
-    } else if (field.type === 'tax') {
-        player.sanity -= field.cost;
-        io.emit('log', `Blutopfer: -${field.cost} Sanity.`, "#f00");
-        nextTurn();
-    } else if (field.type === 'go-to-jail') {
-        player.pos = 7; // Index für Gefängnis
-        io.emit('log', `P${player.id} wurde verbannt!`, "#f00");
-        nextTurn();
     } else if (field.type === 'event') {
-         // Zufallsevent
-         const r = Math.random();
-         if(r < 0.33) {
-             player.sanity -= 10;
-             io.emit('log', `Event: Wahnsinnige Visionen (-10 Sanity).`);
-         } else if (r < 0.66) {
-             player.sanity += 10;
-             io.emit('log', `Event: Ein Moment der Klarheit (+10 Sanity).`);
-         } else {
-             // Teleport
-             player.pos = (player.pos + 3) % 28;
-             io.emit('log', `Event: Stimmen rufen dich vorwärts.`);
-         }
-         nextTurn();
+        // Einfaches Zufallsevent
+        const events = [
+            { t: "Gunst", val: 15, text: "Du findest Kraft. (+15)" },
+            { t: "Wahnsinn", val: -15, text: "Stimmen plagen dich. (-15)" }
+        ];
+        const ev = events[Math.floor(Math.random()*2)];
+        p.sanity = Math.min(100, p.sanity + ev.val);
+        io.emit('showEvent', { title: ev.t, desc: ev.text }); // Modal nur Info
+        io.emit('log', { msg: `Event: ${ev.text}`, color: "#fff" });
+        checkGameOver();
+        
+        // Kurze Pause damit man das Event lesen kann, dann weiter
+        setTimeout(endTurn, 3000); 
+
+    } else if (field.type === 'tax') {
+        p.sanity -= field.cost;
+        io.emit('log', { msg: `Blutopfer: -${field.cost} Sanity.`, color: "#f00" });
+        checkGameOver();
+        endTurn();
+    } else if (field.type === 'go-to-jail') {
+        p.pos = 7; 
+        io.emit('log', { msg: "VERBANNT in die Leere!", color: "#f00" });
+        io.emit('updateState', gameState);
+        endTurn();
     } else {
-        // Start, Free Parking, etc.
-        nextTurn();
+        endTurn();
     }
 }
 
-function nextTurn() {
-    // Game Over Check
-    if(gameState.players.some(p => p.sanity <= 0)) {
-        io.emit('gameOver', gameState.players.find(p => p.sanity > 0).id);
-        return;
-    }
+function checkGameOver() {
+    gameState.players.forEach(p => {
+        if (p.sanity <= 0) {
+            io.emit('gameOver', p.id === 1 ? 2 : 1);
+            gameState.gameStarted = false;
+        }
+    });
+}
 
+function endTurn() {
+    if(!gameState.gameStarted) return;
     gameState.currentPlayerIdx = 1 - gameState.currentPlayerIdx;
+    gameState.turnPhase = 'ROLL';
     io.emit('updateState', gameState);
 }
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
-});
+http.listen(PORT, () => console.log('Server läuft...'));
+
 
