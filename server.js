@@ -47,7 +47,6 @@ function createNewGameState(roomId) {
     return {
         roomId: roomId,
         lastActivity: Date.now(),
-        // Name Feld hinzugefügt
         players: [
             { id: 1, name: "Spieler 1", session: null, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], active: false, eliminated: false, color: '#d00' },
             { id: 2, name: "Spieler 2", session: null, socketId: null, pos: 0, sanity: 100, icon: '🕯', owned: [], active: false, eliminated: false, color: '#0c6' },
@@ -57,7 +56,6 @@ function createNewGameState(roomId) {
         currentPlayerIdx: 0,
         gameStarted: false,
         gameEnded: false,
-        restartTimer: 0,
         turnPhase: 'WAITING', 
         activeTrade: null,
         board: JSON.parse(JSON.stringify(boardDataTemplate))
@@ -67,24 +65,31 @@ function createNewGameState(roomId) {
 let games = {};
 let isDirty = false;
 
-// --- PERSISTENZ ---
+// --- CRASH-PROOF LOADING ---
 if (fs.existsSync(DATA_FILE)) {
     try {
         const rawData = fs.readFileSync(DATA_FILE, 'utf8');
         if (rawData) {
             games = JSON.parse(rawData);
+            // Reset Socket IDs
             for (let rid in games) {
                 if(games[rid] && games[rid].players) {
-                    games[rid].players.forEach(p => p.socketId = null);
+                    games[rid].players.forEach(p => {
+                        p.socketId = null;
+                        if(!p.name) p.name = `Spieler ${p.id}`; // Fallback für alte Saves
+                    });
                 }
             }
+            console.log(`${Object.keys(games).length} Räume geladen.`);
         }
     } catch (e) {
+        console.error("Savegame defekt, starte frisch.", e.message);
         try { fs.unlinkSync(DATA_FILE); } catch(err) {}
         games = {}; 
     }
 }
 
+// Asynchron speichern
 setInterval(() => {
     if (isDirty) {
         fs.writeFile(DATA_FILE, JSON.stringify(games), () => isDirty = false);
@@ -119,15 +124,15 @@ function getContext(socketId) {
 
 io.on('connection', (socket) => {
     
-    // JOIN JETZT MIT NAME
     socket.on('joinGame', (data) => {
         const sessionId = data.sessionId;
-        const playerName = data.name ? data.name.substring(0, 12) : "Unbekannt"; // Name begrenzen
+        const playerName = data.name ? data.name.substring(0, 12) : "Unbekannt";
 
         let foundGame = null;
         let foundPlayer = null;
         let roomIdToJoin = null;
 
+        // Suche existierende Session
         for (let rid in games) {
             const p = games[rid].players.find(pl => pl.session === sessionId);
             if (p) {
@@ -142,7 +147,7 @@ io.on('connection', (socket) => {
             // Reconnect
             foundPlayer.socketId = socket.id;
             foundPlayer.active = true;
-            if(playerName) foundPlayer.name = playerName; // Name update bei Reconnect
+            foundPlayer.name = playerName; // Name aktualisieren
             foundGame.lastActivity = Date.now();
             socket.join(roomIdToJoin);
             socket.emit('init', { id: foundPlayer.id, state: foundGame, roomName: roomIdToJoin });
@@ -151,14 +156,14 @@ io.on('connection', (socket) => {
                 io.to(roomIdToJoin).emit('log', { msg: `${foundPlayer.name} ist zurück.`, color: "#aaa" });
             }
         } else {
-            // Neuer Spieler
+            // Neuer Spieler: Freien Raum suchen
             let roomIndex = 1;
             while (true) {
                 const rName = `room_${roomIndex}`;
                 if (!games[rName]) games[rName] = createNewGameState(rName);
 
                 const game = games[rName];
-                // Nur joinen wenn Spiel noch nicht ENDED ist
+                // Beitritt nur möglich wenn Spiel nicht beendet
                 if (game.gameEnded) { roomIndex++; continue; }
 
                 const freeSlotIdx = game.players.findIndex(p => !p.session && !p.eliminated);
@@ -171,9 +176,8 @@ io.on('connection', (socket) => {
                     foundPlayer.session = sessionId;
                     foundPlayer.socketId = socket.id;
                     foundPlayer.active = true;
-                    foundPlayer.name = playerName; // Name setzen
+                    foundPlayer.name = playerName;
                     
-                    // Reset Stats
                     foundPlayer.pos = 0; foundPlayer.sanity = 100; foundPlayer.owned = []; foundPlayer.eliminated = false;
                     
                     foundGame.lastActivity = Date.now();
@@ -214,7 +218,7 @@ io.on('connection', (socket) => {
             let newPos = (player.pos + roll) % game.board.length;
             if (newPos < player.pos) {
                 player.sanity = Math.min(100, player.sanity + 20);
-                io.to(roomId).emit('log', { msg: `${player.name}: START Bonus (+20).`, color: "#0f0" });
+                io.to(roomId).emit('log', { msg: `${player.name}: START (+20).`, color: "#0f0" });
             }
             player.pos = newPos;
             handleLanding(game, player, roomId);
@@ -348,8 +352,7 @@ function eliminatePlayer(game, p, roomId) {
     io.to(roomId).emit('log', { msg: `${p.name} IST DEM WAHNSINN VERFALLEN!`, color: "#f00" });
     io.to(roomId).emit('updateState', game);
     
-    // CHECK WINNER
-    // Zählen wer aktiv ist ODER eine session hat (also theoretisch noch da ist) UND nicht eliminiert ist
+    // Check Winner
     const survivors = game.players.filter(pl => pl.session && !pl.eliminated);
     
     if (survivors.length === 1) {
@@ -357,9 +360,7 @@ function eliminatePlayer(game, p, roomId) {
         game.gameEnded = true;
         game.gameStarted = false;
         io.to(roomId).emit('gameOver', { winnerName: winner.name });
-        io.to(roomId).emit('log', { msg: `${winner.name} HAT ÜBERLEBT! NEUSTART IN 10s...`, color: "#0f0" });
-        
-        // RESTART TIMER STARTEN
+        io.to(roomId).emit('log', { msg: `SIEGER: ${winner.name}! Neustart in 10s...`, color: "#0f0" });
         startRestartTimer(game, roomId);
     } else {
         endTurn(game, roomId);
@@ -369,11 +370,9 @@ function eliminatePlayer(game, p, roomId) {
 
 function startRestartTimer(game, roomId) {
     let timeLeft = 10;
-    
     const interval = setInterval(() => {
         timeLeft--;
         io.to(roomId).emit('restartTimer', timeLeft);
-        
         if (timeLeft <= 0) {
             clearInterval(interval);
             resetGame(game, roomId);
@@ -382,21 +381,16 @@ function startRestartTimer(game, roomId) {
 }
 
 function resetGame(game, roomId) {
-    // Alles zurücksetzen, aber Spieler behalten
-    game.gameStarted = true; // Sofort wieder startklar
+    game.gameStarted = true;
     game.gameEnded = false;
     game.currentPlayerIdx = 0;
     game.turnPhase = 'ROLL';
     game.activeTrade = null;
-    game.board = JSON.parse(JSON.stringify(boardDataTemplate)); // Brett leeren
+    game.board = JSON.parse(JSON.stringify(boardDataTemplate));
 
     game.players.forEach(p => {
         if (p.session) {
-            p.pos = 0;
-            p.sanity = 100;
-            p.owned = [];
-            p.eliminated = false;
-            // Active status bleibt wie er ist (wer da ist, ist da)
+            p.pos = 0; p.sanity = 100; p.owned = []; p.eliminated = false;
         }
     });
 
