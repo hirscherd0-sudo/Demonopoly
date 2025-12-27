@@ -39,72 +39,74 @@ const boardData = [
 
 let gameState = {
     players: [
-        { id: 1, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], active: false, color: '#ff0000' },
-        { id: 2, socketId: null, pos: 0, sanity: 100, icon: '🕯', owned: [], active: false, color: '#00ff99' },
-        { id: 3, socketId: null, pos: 0, sanity: 100, icon: '💀', owned: [], active: false, color: '#0088ff' },
-        { id: 4, socketId: null, pos: 0, sanity: 100, icon: '🦇', owned: [], active: false, color: '#aa00ff' }
+        { id: 1, session: null, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], active: false, color: '#d00' },
+        { id: 2, session: null, socketId: null, pos: 0, sanity: 100, icon: '🕯', owned: [], active: false, color: '#0c6' },
+        { id: 3, session: null, socketId: null, pos: 0, sanity: 100, icon: '💀', owned: [], active: false, color: '#00f' },
+        { id: 4, session: null, socketId: null, pos: 0, sanity: 100, icon: '🦇', owned: [], active: false, color: '#a0f' }
     ],
     currentPlayerIdx: 0,
     gameStarted: false,
     turnPhase: 'WAITING', 
-    lastRoll: 0,
-    currentFieldPrice: 0,
     activeTrade: null 
 };
 
 io.on('connection', (socket) => {
-    console.log('User verbunden:', socket.id);
-
-    // Freien Slot suchen
-    let myPIdx = gameState.players.findIndex(p => !p.active);
     
-    // Wenn Slot gefunden
-    if (myPIdx !== -1) {
-        gameState.players[myPIdx].socketId = socket.id;
-        gameState.players[myPIdx].active = true;
-        gameState.players[myPIdx].sanity = 100; // Reset Sanity bei neuem Join
-        gameState.players[myPIdx].pos = 0; // Reset Position
-        gameState.players[myPIdx].owned = []; // Reset Besitz
+    // Neuer Login-Flow: Client sendet 'joinGame' mit SessionID aus localStorage
+    socket.on('joinGame', (sessionId) => {
+        let player = gameState.players.find(p => p.session === sessionId);
+        let myPIdx = -1;
 
-        const activeCount = gameState.players.filter(p => p.active).length;
-
-        // Spielstart Logik
-        if (activeCount >= 2 && !gameState.gameStarted) {
-            gameState.gameStarted = true;
-            gameState.currentPlayerIdx = 0; // Immer bei P1 anfangen oder beim ersten aktiven
-            // Sicherstellen, dass der Startspieler aktiv ist
-            while(!gameState.players[gameState.currentPlayerIdx].active) {
-                gameState.currentPlayerIdx = (gameState.currentPlayerIdx + 1) % 4;
+        if (player) {
+            // WIEDERKEHRER: Session bekannt
+            console.log(`Spieler ${player.id} ist zurückgekehrt.`);
+            player.socketId = socket.id;
+            player.active = true;
+            myPIdx = gameState.players.indexOf(player);
+        } else {
+            // NEUER SPIELER: Freien Slot suchen
+            myPIdx = gameState.players.findIndex(p => !p.session);
+            if (myPIdx !== -1) {
+                console.log(`Neuer Spieler auf Slot ${myPIdx + 1}`);
+                player = gameState.players[myPIdx];
+                player.session = sessionId; // Session binden
+                player.socketId = socket.id;
+                player.active = true;
+                // Reset Stats für neuen Spieler
+                player.pos = 0;
+                player.sanity = 100;
+                player.owned = [];
+            } else {
+                socket.emit('full');
+                return;
             }
-            gameState.turnPhase = 'ROLL';
-            io.emit('log', { msg: "Das Spiel beginnt! Spieler 1 ist am Zug.", color: "#fff" });
-        } else if (gameState.gameStarted) {
-             io.emit('log', { msg: `Spieler ${myPIdx+1} ist beigetreten.`, color: "#fff" });
         }
 
-        socket.emit('init', { id: myPIdx + 1, state: gameState });
-        io.emit('updateState', gameState);
-    } else {
-        socket.emit('full');
-    }
+        // Spielstart Prüfung
+        const activeCount = gameState.players.filter(p => p.active).length;
+        if (activeCount >= 2 && !gameState.gameStarted) {
+            gameState.gameStarted = true;
+            gameState.turnPhase = 'ROLL';
+            io.emit('log', { msg: "Das Spiel beginnt!", color: "#fff" });
+        }
 
-    // --- LOGIK ---
+        socket.emit('init', { id: player.id, state: gameState });
+        io.emit('updateState', gameState);
+    });
 
     socket.on('rollDice', () => {
-        if (!gameState.gameStarted) return;
-        if (gameState.currentPlayerIdx !== myPIdx) return;
+        const p = getPlayerBySocket(socket.id);
+        if (!p || !gameState.gameStarted) return;
+        if (gameState.players[gameState.currentPlayerIdx].id !== p.id) return;
         if (gameState.turnPhase !== 'ROLL') return;
 
         gameState.turnPhase = 'ANIMATING';
         const roll = Math.floor(Math.random() * 6) + 1;
         
-        io.emit('animDice', { roll: roll, pId: myPIdx + 1 });
+        io.emit('animDice', { roll: roll, pId: p.id });
 
-        // Verzögerung für Animation
         setTimeout(() => {
-            const p = gameState.players[myPIdx];
             let newPos = (p.pos + roll) % boardData.length;
-
             if (newPos < p.pos) {
                 p.sanity = Math.min(100, p.sanity + 20);
                 io.emit('log', { msg: `P${p.id} passiert START (+20 Sanity).`, color: "#0f0" });
@@ -115,81 +117,95 @@ io.on('connection', (socket) => {
     });
 
     socket.on('decision', (decision) => {
-        if (gameState.currentPlayerIdx !== myPIdx) return;
-        if (gameState.turnPhase !== 'DECISION') return;
-
-        const p = gameState.players[myPIdx];
+        const p = getPlayerBySocket(socket.id);
+        if (!p || gameState.turnPhase !== 'DECISION') return;
+        
         const field = boardData[p.pos];
-
         if (decision === 'buy' && p.sanity > field.price) {
             p.sanity -= field.price;
             p.owned.push(p.pos);
             io.emit('log', { msg: `P${p.id} kauft ${field.name}.`, color: "#0f0" });
         } else {
-            io.emit('log', { msg: `P${p.id} kauft nicht.`, color: "#aaa" });
+            io.emit('log', { msg: `P${p.id} zieht weiter.`, color: "#aaa" });
         }
         endTurn();
     });
 
-    // Handel
-    socket.on('offerTrade', (data) => {
-        if (gameState.currentPlayerIdx !== myPIdx) return; 
-        const buyer = gameState.players[myPIdx];
-        const offer = parseInt(data.offer);
-        const owner = gameState.players.find(p => p.owned.includes(data.propIdx));
-        
-        if (!owner || owner.id === buyer.id || buyer.sanity < offer) return;
+    // --- HANDELSSYSTEM ---
 
+    socket.on('offerTrade', (data) => {
+        const buyer = getPlayerBySocket(socket.id);
+        if (!buyer) return;
+
+        const propIdx = parseInt(data.propIdx);
+        const offer = parseInt(data.offer);
+        
+        // Validierung
+        const owner = gameState.players.find(p => p.owned.includes(propIdx));
+        
+        if (!owner) return; // Gehört niemandem
+        if (owner.id === buyer.id) return; // Gehört mir selbst
+        if (buyer.sanity < offer) return; // Zu wenig Geld
+
+        // Status speichern
         const oldPhase = gameState.turnPhase;
         gameState.turnPhase = 'TRADING';
-        gameState.activeTrade = { sourceId: buyer.id, targetId: owner.id, propIdx: data.propIdx, offer: offer, returnPhase: oldPhase };
+        gameState.activeTrade = { 
+            sourceId: buyer.id, 
+            targetId: owner.id, 
+            propIdx: propIdx, 
+            offer: offer, 
+            returnPhase: oldPhase 
+        };
+
         io.emit('updateState', gameState);
         io.emit('tradeRequest', gameState.activeTrade);
+        io.emit('log', { msg: `P${buyer.id} bietet P${owner.id} ${offer} Sanity für ${boardData[propIdx].name}.`, color: "#fb0" });
     });
 
     socket.on('respondTrade', (data) => {
         const trade = gameState.activeTrade;
-        if (!trade || gameState.players[myPIdx].id !== trade.targetId) return;
+        const p = getPlayerBySocket(socket.id);
+        
+        if (!trade || !p || p.id !== trade.targetId) return;
 
-        const buyer = gameState.players.find(p => p.id === trade.sourceId);
-        const owner = gameState.players.find(p => p.id === trade.targetId);
+        const buyer = gameState.players.find(pl => pl.id === trade.sourceId);
+        const owner = p; // Der Antwortende ist der Besitzer
 
         if (data.accepted && buyer.sanity >= trade.offer) {
             buyer.sanity -= trade.offer;
             owner.sanity += trade.offer;
             owner.owned = owner.owned.filter(idx => idx !== trade.propIdx);
             buyer.owned.push(trade.propIdx);
-            io.emit('log', { msg: `Handel erfolgreich!`, color: "#0f0" });
+            io.emit('log', { msg: `Handel akzeptiert! ${boardData[trade.propIdx].name} gehört nun P${buyer.id}.`, color: "#0f0" });
         } else {
             io.emit('log', { msg: `Handel abgelehnt.`, color: "#f44" });
         }
+
         gameState.turnPhase = trade.returnPhase;
         gameState.activeTrade = null;
         io.emit('updateState', gameState);
     });
 
     socket.on('disconnect', () => {
-        if(myPIdx !== -1) {
-            gameState.players[myPIdx].active = false;
-            gameState.players[myPIdx].socketId = null;
-            gameState.players[myPIdx].owned = []; // Reset bei Disconnect? Optional.
-            
-            const activeCount = gameState.players.filter(p => p.active).length;
-            
-            if (activeCount < 2) {
-                gameState.gameStarted = false;
-                gameState.turnPhase = 'WAITING';
-                io.emit('log', { msg: "Warte auf Spieler...", color: "#f00" });
-            } else {
-                // Wenn der aktive Spieler geht, Zug beenden
-                if (gameState.currentPlayerIdx === myPIdx) {
-                    endTurn();
-                }
-            }
+        const p = getPlayerBySocket(socket.id);
+        if (p) {
+            p.active = false; 
+            // WICHTIG: Wir löschen 'session' NICHT, damit er wiederkommen kann!
+            // Nur wenn Server neustartet, ist der State weg.
             io.emit('updateState', gameState);
+            
+            const activeCount = gameState.players.filter(pl => pl.active).length;
+            if(activeCount < 2 && gameState.gameStarted) {
+                io.emit('log', { msg: "Warte auf Spieler...", color: "#f00" });
+            }
         }
     });
 });
+
+function getPlayerBySocket(socketId) {
+    return gameState.players.find(p => p.socketId === socketId);
+}
 
 function handleLanding(p) {
     const field = boardData[p.pos];
@@ -198,14 +214,12 @@ function handleLanding(p) {
     if (field.type === 'prop') {
         const owner = gameState.players.find(pl => pl.owned.includes(p.pos));
         if (owner && owner.id !== p.id) {
-            // Miete
             p.sanity -= field.rent;
             owner.sanity += field.rent;
-            io.emit('log', { msg: `P${p.id} zahlt ${field.rent} Miete.`, color: "#f44" });
+            io.emit('log', { msg: `P${p.id} zahlt ${field.rent} an P${owner.id}.`, color: "#f44" });
             checkGameOver();
             endTurn();
         } else if (!owner && p.sanity > field.price) {
-            // Kauf möglich
             gameState.turnPhase = 'DECISION';
             gameState.currentFieldPrice = field.price;
             io.emit('updateState', gameState);
@@ -213,7 +227,6 @@ function handleLanding(p) {
             endTurn();
         }
     } else if (field.type === 'event') {
-         // Vereinfachte Events für schnelleres Gameplay
          const gain = Math.random() > 0.5;
          if(gain) {
              p.sanity = Math.min(100, p.sanity + 10);
@@ -229,11 +242,7 @@ function handleLanding(p) {
         io.emit('updateState', gameState);
         endTurn();
     } else {
-        // Tax, Start, etc.
-        if (field.type === 'tax') {
-            p.sanity -= field.cost;
-            checkGameOver();
-        }
+        if (field.type === 'tax') { p.sanity -= field.cost; checkGameOver(); }
         endTurn();
     }
 }
@@ -241,24 +250,19 @@ function handleLanding(p) {
 function checkGameOver() {
     gameState.players.forEach(p => {
         if (p.active && p.sanity <= 0) {
-            io.emit('log', { msg: `P${p.id} IST AUSGESCHIEDEN!`, color: "#f00" });
-            p.sanity = 0;
-            p.owned = []; // Besitz verlieren
-            // Optional: Respawn Logic hier einfügen
+            io.emit('log', { msg: `P${p.id} IST DEM WAHNSINN VERFALLEN!`, color: "#f00" });
+            p.sanity = 0; p.owned = []; 
         }
     });
 }
 
 function endTurn() {
     if(!gameState.gameStarted) return;
-    
-    // Finde nächsten AKTIVEN Spieler
     let attempts = 0;
     do {
         gameState.currentPlayerIdx = (gameState.currentPlayerIdx + 1) % 4;
         attempts++;
     } while (!gameState.players[gameState.currentPlayerIdx].active && attempts < 5);
-
     gameState.turnPhase = 'ROLL';
     io.emit('updateState', gameState);
 }
