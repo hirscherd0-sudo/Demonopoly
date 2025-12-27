@@ -3,135 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monopoly des Wahnsinns - 4 Player</title>
+    <title>Monopoly des Wahnsinns</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Nosifer&family=Special+Elite&display=swap');
 
         body {
-            background-color: #050505;
-            color: #d1d1d1;
-            font-family: 'Special Elite', cursive;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 10px;
-            overflow-x: hidden;
+            background-color: #050505; color: #d1d1d1; font-family: 'Special Elite', cursive;
+            min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 10px; overflow-x: hidden;
         }
 
-        .horror-title {
-            font-family: 'Nosifer', cursive;
-            color: #8b0000;
-            text-shadow: 0 0 10px rgba(139, 0, 0, 0.7);
-        }
+        .horror-title { font-family: 'Nosifer', cursive; color: #8b0000; text-shadow: 0 0 10px rgba(139, 0, 0, 0.7); }
 
         #board-container {
-            width: 100%;
-            max-width: 600px;
-            aspect-ratio: 1 / 1;
-            position: relative;
-            margin: 10px auto;
+            width: 100%; max-width: 600px; aspect-ratio: 1 / 1; position: relative; margin: 10px auto;
         }
 
         #board {
-            display: grid;
-            grid-template-columns: repeat(8, 1fr);
-            grid-template-rows: repeat(8, 1fr);
-            gap: 2px;
-            width: 100%;
-            height: 100%;
-            background: #1a1a1a;
-            border: 4px solid #333;
+            display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+            gap: 2px; width: 100%; height: 100%; background: #1a1a1a; border: 4px solid #333;
             box-shadow: 0 0 50px rgba(0,0,0,1);
         }
 
         #center-area {
-            grid-column: 2 / 8;
-            grid-row: 2 / 8;
-            background: radial-gradient(circle, #1a0000 0%, #000 80%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 5;
-            border: 1px solid #300;
-            padding: 20px;
-            text-align: center;
+            grid-column: 2 / 8; grid-row: 2 / 8; background: radial-gradient(circle, #1a0000 0%, #000 80%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 5; border: 1px solid #300; padding: 20px; text-align: center;
         }
 
-        .skull-svg {
-            width: 40%;
-            height: 40%;
-            filter: drop-shadow(0 0 15px #f00);
-            opacity: 0.6;
-            margin-bottom: 10px;
-        }
+        .skull-svg { width: 40%; height: 40%; filter: drop-shadow(0 0 15px #f00); opacity: 0.6; margin-bottom: 10px; }
 
         .cell {
-            background: #0d0d0d;
-            border: 1px solid #222;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-size: clamp(0.4rem, 1.2vw, 0.7rem);
-            text-align: center;
-            position: relative;
-            padding: 2px;
-            z-index: 10;
-            cursor: pointer;
+            background: #0d0d0d; border: 1px solid #222; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; font-size: clamp(0.4rem, 1.2vw, 0.7rem);
+            text-align: center; position: relative; padding: 2px; z-index: 10; cursor: pointer;
         }
-        
         .cell:hover { filter: brightness(1.2); border-color: #555; }
+        .cell-header { position: absolute; top: 0; width: 100%; height: 20%; }
 
-        .cell-header {
-            position: absolute;
-            top: 0;
-            width: 100%;
-            height: 20%;
-        }
-
-        /* --- SPIELER TOKENS --- */
+        /* Spieler Tokens */
         .player {
-            width: clamp(14px, 3vw, 24px);
-            height: clamp(14px, 3vw, 24px);
-            border-radius: 50%;
-            position: absolute;
-            z-index: 100;
-            display: none; /* Default hidden until active */
-            align-items: center;
-            justify-content: center;
-            font-size: clamp(8px, 2vw, 14px);
-            color: white;
-            border: 2px solid white;
-            transition: all 0.5s ease;
-            box-shadow: 0 0 5px black;
+            width: clamp(14px, 3vw, 24px); height: clamp(14px, 3vw, 24px); border-radius: 50%;
+            position: absolute; z-index: 100; display: none; align-items: center; justify-content: center;
+            font-size: clamp(8px, 2vw, 14px); color: white; border: 2px solid white;
+            transition: all 0.5s ease; box-shadow: 0 0 5px black;
         }
+        .player-1 { background: #d00; border-color: #f88; }
+        .player-2 { background: #0c6; border-color: #8f8; }
+        .player-3 { background: #06f; border-color: #88f; }
+        .player-4 { background: #90f; border-color: #d8f; }
 
-        /* Explizite Farben für alle 4 Spieler */
-        .player-1 { background: #d00; border-color: #f88; } /* Rot */
-        .player-2 { background: #0c6; border-color: #8f8; } /* Grün */
-        .player-3 { background: #06f; border-color: #88f; } /* Blau */
-        .player-4 { background: #90f; border-color: #d8f; } /* Lila */
-
-        .sanity-bar {
-            width: 100%;
-            height: 6px;
-            background: #222;
-            margin-top: 2px;
-            border: 1px solid #444;
-        }
+        .sanity-bar { width: 100%; height: 6px; background: #222; margin-top: 2px; border: 1px solid #444; }
         .sanity-fill { height: 100%; transition: width 0.5s ease; }
 
         .btn-dice {
-            background: #4a0000; border: 2px solid #8b0000; color: #eee;
-            padding: 10px 20px; font-family: 'Creepster', cursive;
-            font-size: clamp(1rem, 4vw, 1.5rem); cursor: pointer; min-width: 120px;
+            background: #4a0000; border: 2px solid #8b0000; color: #eee; padding: 10px 20px;
+            font-family: 'Creepster', cursive; font-size: clamp(1rem, 4vw, 1.5rem);
+            cursor: pointer; min-width: 120px;
         }
         .btn-dice:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .btn-trade {
+            position: absolute; top: 10px; right: 10px; background: #000; color: #fb0;
+            border: 1px solid #fb0; padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
+            z-index: 50;
+        }
 
         #log {
             height: 100px; width: 100%; max-width: 600px; overflow-y: auto;
@@ -146,49 +84,37 @@
             text-align: center; padding: 20px;
         }
         
-        .owner-dot {
-            width: 8px; height: 8px; border-radius: 50%;
-            position: absolute; bottom: 2px; right: 2px;
-        }
+        .owner-dot { width: 8px; height: 8px; border-radius: 50%; position: absolute; bottom: 2px; right: 2px; }
 
-        .stats-box {
-            padding: 4px; border: 1px solid #333; background: rgba(0,0,0,0.8);
-            display: none; /* Versteckt wenn inaktiv */
-        }
+        .stats-box { padding: 4px; border: 1px solid #333; background: rgba(0,0,0,0.8); display: none; }
         .stats-box.active-turn { border: 2px solid white; box-shadow: 0 0 10px #fff; }
+
+        /* Trading List Styles */
+        .trade-list-item {
+            width: 100%; padding: 10px; margin: 5px 0; background: #222; border: 1px solid #444;
+            cursor: pointer; display: flex; justify-content: space-between;
+        }
+        .trade-list-item:hover { background: #333; border-color: #888; }
     </style>
 </head>
 <body>
 
+    <button onclick="openTradeMenu()" class="btn-trade">SCHWARZMARKT (Handel)</button>
+
     <h1 class="horror-title text-2xl mb-1">MONOPOLY DES WAHNSINNS</h1>
     <div id="status-display" class="text-xs text-yellow-500 mb-2">Verbinde...</div>
 
-    <!-- STATS FÜR 4 SPIELER -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full max-w-[600px] mb-2 text-[10px] sm:text-xs">
-        <div id="p1-box" class="stats-box border-red-900">
-            <div class="flex justify-between"><span>P1 👁</span> <span id="p1-sanity">100</span></div>
-            <div class="sanity-bar"><div id="p1-bar" class="sanity-fill bg-red-600" style="width: 100%;"></div></div>
-        </div>
-        <div id="p2-box" class="stats-box border-green-900">
-            <div class="flex justify-between"><span>P2 🕯</span> <span id="p2-sanity">100</span></div>
-            <div class="sanity-bar"><div id="p2-bar" class="sanity-fill bg-green-500" style="width: 100%;"></div></div>
-        </div>
-        <div id="p3-box" class="stats-box border-blue-900">
-            <div class="flex justify-between"><span>P3 💀</span> <span id="p3-sanity">100</span></div>
-            <div class="sanity-bar"><div id="p3-bar" class="sanity-fill bg-blue-600" style="width: 100%;"></div></div>
-        </div>
-        <div id="p4-box" class="stats-box border-purple-900">
-            <div class="flex justify-between"><span>P4 🦇</span> <span id="p4-sanity">100</span></div>
-            <div class="sanity-bar"><div id="p4-bar" class="sanity-fill bg-purple-600" style="width: 100%;"></div></div>
-        </div>
+        <div id="p1-box" class="stats-box border-red-900"><div class="flex justify-between"><span>P1 👁</span> <span id="p1-sanity">100</span></div><div class="sanity-bar"><div id="p1-bar" class="sanity-fill bg-red-600" style="width: 100%;"></div></div></div>
+        <div id="p2-box" class="stats-box border-green-900"><div class="flex justify-between"><span>P2 🕯</span> <span id="p2-sanity">100</span></div><div class="sanity-bar"><div id="p2-bar" class="sanity-fill bg-green-500" style="width: 100%;"></div></div></div>
+        <div id="p3-box" class="stats-box border-blue-900"><div class="flex justify-between"><span>P3 💀</span> <span id="p3-sanity">100</span></div><div class="sanity-bar"><div id="p3-bar" class="sanity-fill bg-blue-600" style="width: 100%;"></div></div></div>
+        <div id="p4-box" class="stats-box border-purple-900"><div class="flex justify-between"><span>P4 🦇</span> <span id="p4-sanity">100</span></div><div class="sanity-bar"><div id="p4-bar" class="sanity-fill bg-purple-600" style="width: 100%;"></div></div></div>
     </div>
 
     <div id="board-container">
         <div id="board">
             <div id="center-area">
-                <svg class="skull-svg" viewBox="0 0 512 512">
-                    <path fill="#500" d="M256 16c-106 0-192 86-192 192 0 62 30 117 76 151l-20 73c-3 10 4 20 15 20h242c11 0 18-10 15-20l-20-73c46-34 76-89 76-151 0-106-86-192-192-192z"/>
-                </svg>
+                <svg class="skull-svg" viewBox="0 0 512 512"><path fill="#500" d="M256 16c-106 0-192 86-192 192 0 62 30 117 76 151l-20 73c-3 10 4 20 15 20h242c11 0 18-10 15-20l-20-73c46-34 76-89 76-151 0-106-86-192-192-192z"/></svg>
                 <div id="center-msg" class="text-xs text-red-500">Warte auf Spieler...</div>
             </div>
         </div>
@@ -201,11 +127,15 @@
 
     <div id="log"></div>
 
-    <!-- MODAL -->
+    <!-- UNIVERSAL MODAL -->
     <div id="modal" class="overlay">
         <h2 id="modal-title" class="horror-title text-xl mb-4 text-red-500">TITEL</h2>
         <p id="modal-desc" class="mb-4 max-w-md px-4 text-gray-300 text-sm">Text...</p>
         
+        <!-- Bereich für Marktplatz Listen -->
+        <div id="trade-list-area" class="w-full max-w-md mb-4 max-h-60 overflow-y-auto hidden"></div>
+
+        <!-- Input für Angebote -->
         <div id="trade-input-area" class="hidden mb-4">
             <input type="number" id="trade-offer-input" placeholder="Sanity Angebot" class="bg-gray-800 border border-gray-500 text-white p-2 rounded w-32 text-center">
         </div>
@@ -217,6 +147,13 @@
         const socket = io();
         let myId = null;
         let currentGameState = null;
+        
+        // Session Handling
+        let sessionId = localStorage.getItem('monopoly_session');
+        if (!sessionId) {
+            sessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+            localStorage.setItem('monopoly_session', sessionId);
+        }
 
         const boardData = [
             { name: "START", type: "start" }, { name: "Keller", color: "#300" }, { name: "Schicksal" }, { name: "Dachboden", color: "#300" },
@@ -229,13 +166,11 @@
         ];
 
         const gridMap = [
-            [7,7],[7,6],[7,5],[7,4],[7,3],[7,2],[7,1],
-            [7,0],[6,0],[5,0],[4,0],[3,0],[2,0],[1,0],
-            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],
-            [0,7],[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]
+            [7,7],[7,6],[7,5],[7,4],[7,3],[7,2],[7,1],[7,0],[6,0],[5,0],[4,0],[3,0],[2,0],[1,0],
+            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]
         ];
 
-        // INIT BOARD
+        // INIT
         const board = document.getElementById('board');
         boardData.forEach((f, i) => {
             const cell = document.createElement('div');
@@ -243,19 +178,15 @@
             const pos = gridMap[i];
             cell.style.gridRow = pos[0] + 1;
             cell.style.gridColumn = pos[1] + 1;
-            cell.onclick = () => handleCellClick(i);
-
+            
             if (f.color) {
-                const h = document.createElement('div');
-                h.className = 'cell-header'; h.style.background = f.color;
-                cell.appendChild(h);
+                const h = document.createElement('div'); h.className = 'cell-header'; h.style.background = f.color; cell.appendChild(h);
             }
             const n = document.createElement('div'); n.innerText = f.name; cell.appendChild(n);
             const dot = document.createElement('div'); dot.id = `owner-${i}`; dot.className = 'owner-dot'; cell.appendChild(dot);
             board.appendChild(cell);
         });
 
-        // Tokens für 4 Spieler sicher erstellen
         [1,2,3,4].forEach(id => {
             const token = document.createElement('div');
             token.id = `token-${id}`;
@@ -265,6 +196,10 @@
         });
 
         // --- SOCKETS ---
+
+        socket.on('connect', () => {
+            socket.emit('joinGame', sessionId);
+        });
 
         socket.on('init', (data) => {
             myId = data.id;
@@ -295,15 +230,9 @@
             if (myId === trade.targetId) {
                 const buyerId = trade.sourceId;
                 const propName = boardData[trade.propIdx].name;
-                showModal(
-                    "HANDELSANGEBOT",
-                    `Spieler ${buyerId} bietet ${trade.offer} Sanity für ${propName}.`,
-                    false,
-                    [
-                        { txt: "ANNEHMEN", cb: () => { socket.emit('respondTrade', {accepted:true}); closeModal(); }, col: "green" },
-                        { txt: "ABLEHNEN", cb: () => { socket.emit('respondTrade', {accepted:false}); closeModal(); }, col: "red" }
-                    ]
-                );
+                showModal("HANDELSANGEBOT", `P${buyerId} bietet ${trade.offer} Sanity für ${propName}.`, false, false,
+                    [{ txt: "ANNEHMEN", cb: () => { socket.emit('respondTrade', {accepted:true}); closeModal(); }, col: "green" },
+                     { txt: "ABLEHNEN", cb: () => { socket.emit('respondTrade', {accepted:false}); closeModal(); }, col: "red" }]);
             }
         });
 
@@ -318,34 +247,22 @@
                 const token = document.getElementById(`token-${p.id}`);
                 
                 if (p.active) {
-                    box.style.display = 'block'; // Zeige Box
+                    box.style.display = 'block';
+                    if (state.gameStarted && state.players[state.currentPlayerIdx].id === p.id) box.classList.add('active-turn');
+                    else box.classList.remove('active-turn');
                     
-                    // Markiere wer dran ist
-                    if (state.gameStarted && state.players[state.currentPlayerIdx].id === p.id) {
-                        box.classList.add('active-turn');
-                    } else {
-                        box.classList.remove('active-turn');
-                    }
-                    
-                    token.style.display = 'flex'; // Zeige Token
-                    
+                    token.style.display = 'flex';
                     document.getElementById(`p${p.id}-sanity`).innerText = Math.floor(p.sanity);
                     document.getElementById(`p${p.id}-bar`).style.width = Math.max(0, p.sanity) + '%';
 
                     const target = gridMap[p.pos];
-                    const boardEl = document.getElementById('board');
-                    const cellSize = boardEl.offsetWidth / 8;
-                    
-                    // Offsets damit sie nicht übereinander liegen
+                    const cellSize = document.getElementById('board').offsetWidth / 8;
                     const offX = (p.id === 1 || p.id === 3) ? -5 : 5;
                     const offY = (p.id === 1 || p.id === 2) ? -5 : 5;
-
                     token.style.top = (target[0] * cellSize + (cellSize/2) - (token.offsetHeight/2) + offY) + 'px';
                     token.style.left = (target[1] * cellSize + (cellSize/2) - (token.offsetWidth/2) + offX) + 'px';
 
-                    p.owned.forEach(idx => {
-                        document.getElementById(`owner-${idx}`).style.background = p.color;
-                    });
+                    p.owned.forEach(idx => document.getElementById(`owner-${idx}`).style.background = p.color);
                 } else {
                     box.style.display = 'none';
                     token.style.display = 'none';
@@ -356,59 +273,71 @@
             const diceBtn = document.getElementById('dice-btn');
             const myTurn = (state.players[state.currentPlayerIdx].id === myId);
 
-            if (!state.gameStarted) {
-                centerMsg.innerText = "Warte auf min. 2 Spieler...";
-                diceBtn.disabled = true;
-                return;
-            }
+            if (!state.gameStarted) { centerMsg.innerText = "Warte auf min. 2 Spieler..."; diceBtn.disabled = true; return; }
 
-            if (state.turnPhase === 'TRADING') {
-                centerMsg.innerText = "Handel läuft...";
-                diceBtn.disabled = true;
-            } else if (state.turnPhase === 'ROLL') {
-                if (myTurn) {
-                    centerMsg.innerText = "DEIN ZUG!";
-                    centerMsg.style.color = "#0f0";
-                    diceBtn.disabled = false;
-                } else {
-                    centerMsg.innerText = `P${state.currentPlayerIdx+1} ist dran`;
-                    centerMsg.style.color = "#888";
-                    diceBtn.disabled = true;
-                }
-                closeModal(); 
+            if (state.turnPhase === 'TRADING') { centerMsg.innerText = "Handel läuft..."; diceBtn.disabled = true; }
+            else if (state.turnPhase === 'ROLL') {
+                centerMsg.innerText = myTurn ? "DEIN ZUG!" : `P${state.currentPlayerIdx+1} ist dran`;
+                centerMsg.style.color = myTurn ? "#0f0" : "#888";
+                diceBtn.disabled = !myTurn;
+                if(myTurn) closeModal();
             } else if (state.turnPhase === 'DECISION' && myTurn) {
-                const fieldName = boardData[state.players[state.currentPlayerIdx].pos].name;
-                showModal(
-                    "ORT VERSIEGELN?",
-                    `${fieldName} für ${state.currentFieldPrice} Sanity kaufen?`,
-                    false,
-                    [
-                        { txt: "KAUFEN", cb: () => { socket.emit('decision', 'buy'); closeModal(); }, col: "green" },
-                        { txt: "WEITER", cb: () => { socket.emit('decision', 'pass'); closeModal(); }, col: "gray" }
-                    ]
-                );
+                showModal("ORT VERSIEGELN?", `${boardData[state.players[state.currentPlayerIdx].pos].name} für ${state.currentFieldPrice} Sanity kaufen?`, false, false,
+                    [{ txt: "KAUFEN", cb: () => { socket.emit('decision', 'buy'); closeModal(); }, col: "green" },
+                     { txt: "WEITER", cb: () => { socket.emit('decision', 'pass'); closeModal(); }, col: "gray" }]);
             }
         }
 
-        function handleCellClick(idx) {
-            if (!currentGameState || !currentGameState.gameStarted) return;
-            if (currentGameState.players[currentGameState.currentPlayerIdx].id !== myId) return; 
-            
-            const field = boardData[idx];
-            if (field.type !== 'prop') return;
+        // --- HANDELS UI LOGIK ---
 
-            const owner = currentGameState.players.find(p => p.owned.includes(idx));
-            if (owner && owner.id !== myId) {
-                showModal(
-                    "ANGEBOT MACHEN",
-                    `Biete Sanity für ${field.name} (Besitzer: P${owner.id})`,
-                    true,
-                    [
-                        { txt: "SENDEN", cb: () => sendTradeOffer(idx), col: "blue" },
-                        { txt: "ABBRECHEN", cb: closeModal, col: "gray" }
-                    ]
-                );
+        function openTradeMenu() {
+            if(!currentGameState || !currentGameState.gameStarted) return alert("Spiel läuft noch nicht.");
+            
+            // 1. Spieler Liste anzeigen
+            const list = document.getElementById('trade-list-area');
+            list.innerHTML = "";
+            let found = false;
+
+            currentGameState.players.forEach(p => {
+                if(p.active && p.id !== myId) {
+                    found = true;
+                    const item = document.createElement('div');
+                    item.className = "trade-list-item";
+                    item.innerHTML = `<span>Spieler ${p.id}</span> <span>Besitz: ${p.owned.length}</span>`;
+                    item.onclick = () => showPlayerProps(p);
+                    list.appendChild(item);
+                }
+            });
+
+            if(!found) list.innerHTML = "<div class='p-2'>Keine anderen Spieler aktiv.</div>";
+
+            showModal("SCHWARZMARKT", "Wähle einen Spieler:", false, true, [{ txt: "SCHLIESSEN", cb: closeModal, col: "gray" }]);
+        }
+
+        function showPlayerProps(player) {
+            const list = document.getElementById('trade-list-area');
+            list.innerHTML = "";
+            
+            if(player.owned.length === 0) {
+                list.innerHTML = "<div class='p-2'>Dieser Spieler besitzt nichts.</div>";
+            } else {
+                player.owned.forEach(propIdx => {
+                    const item = document.createElement('div');
+                    item.className = "trade-list-item";
+                    item.innerText = boardData[propIdx].name;
+                    item.onclick = () => showOfferInput(player.id, propIdx);
+                    list.appendChild(item);
+                });
             }
+            
+            showModal(`BESITZ VON P${player.id}`, "Wähle einen Ort:", false, true, 
+                [{ txt: "ZURÜCK", cb: openTradeMenu, col: "gray" }]);
+        }
+
+        function showOfferInput(targetId, propIdx) {
+            showModal("ANGEBOT MACHEN", `Wie viel bietest du P${targetId} für ${boardData[propIdx].name}?`, true, false,
+                [{ txt: "SENDEN", cb: () => sendTradeOffer(propIdx), col: "blue" },
+                 { txt: "ABBRECHEN", cb: openTradeMenu, col: "gray" }]);
         }
 
         function sendTradeOffer(idx) {
@@ -421,22 +350,23 @@
             }
         }
 
-        function showModal(title, text, showInput, actions) {
+        // Helper
+        function showModal(title, text, showInput, showList, actions) {
             const m = document.getElementById('modal');
             document.getElementById('modal-title').innerText = title;
             document.getElementById('modal-desc').innerText = text;
-            const inp = document.getElementById('trade-input-area');
-            const actContainer = document.getElementById('modal-actions');
             
-            inp.style.display = showInput ? 'block' : 'none';
+            document.getElementById('trade-input-area').style.display = showInput ? 'block' : 'none';
             if(showInput) document.getElementById('trade-offer-input').value = '';
 
+            document.getElementById('trade-list-area').style.display = showList ? 'block' : 'none';
+
+            const actContainer = document.getElementById('modal-actions');
             actContainer.innerHTML = '';
             if (actions) {
                 actions.forEach(a => {
                     const btn = document.createElement('button');
-                    btn.innerText = a.txt;
-                    btn.onclick = a.cb;
+                    btn.innerText = a.txt; btn.onclick = a.cb;
                     let bg = a.col === 'green' ? 'bg-green-700' : (a.col === 'red' ? 'bg-red-700' : (a.col === 'blue' ? 'bg-blue-700' : 'bg-gray-700'));
                     btn.className = `px-4 py-2 text-xs rounded text-white border border-gray-500 ${bg} hover:brightness-125`;
                     actContainer.appendChild(btn);
