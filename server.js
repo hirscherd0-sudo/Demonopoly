@@ -3,8 +3,11 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const path = require('path');
+const fs = require('fs');
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+const DATA_FILE = 'game_data.json';
 
 const boardData = [
     { name: "START", type: "start" },
@@ -37,6 +40,7 @@ const boardData = [
     { name: "ENDSTATION", type: "prop", price: 80, rent: 40, color: "#800", group: "final" }
 ];
 
+// Standardzustand
 let gameState = {
     players: [
         { id: 1, session: null, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], active: false, eliminated: false, color: '#d00' },
@@ -50,35 +54,65 @@ let gameState = {
     activeTrade: null 
 };
 
+// --- PERSISTENZ LADEN ---
+if (fs.existsSync(DATA_FILE)) {
+    try {
+        console.log("Lade gespeicherten Spielstand...");
+        const rawData = fs.readFileSync(DATA_FILE);
+        const loadedState = JSON.parse(rawData);
+        // Wir übernehmen die wichtigen Daten, setzen aber socketId zurück (da neue Verbindung)
+        gameState = loadedState;
+        gameState.players.forEach(p => p.socketId = null); 
+        console.log("Spielstand wiederhergestellt.");
+    } catch (e) {
+        console.error("Fehler beim Laden:", e);
+    }
+}
+
+// --- PERSISTENZ SPEICHERN ---
+function saveGame() {
+    try {
+        fs.writeFileSync(DATA_FILE, JSON.stringify(gameState));
+    } catch (e) {
+        console.error("Fehler beim Speichern:", e);
+    }
+}
+
 io.on('connection', (socket) => {
     
     socket.on('joinGame', (sessionId) => {
         let player = gameState.players.find(p => p.session === sessionId);
         
         if (player) {
-            // Spieler kommt zurück
+            // BEKANNTER SPIELER (Session ID existiert im geladenen State)
+            console.log(`Spieler ${player.id} reconnected.`);
             player.socketId = socket.id;
             player.active = true;
         } else {
-            // Neuer Spieler
+            // NEUER SPIELER
             const myPIdx = gameState.players.findIndex(p => !p.session && !p.eliminated);
             if (myPIdx !== -1) {
                 player = gameState.players[myPIdx];
                 player.session = sessionId;
                 player.socketId = socket.id;
                 player.active = true;
+                // Initiale Werte sicherstellen
                 player.pos = 0; player.sanity = 100; player.owned = []; player.eliminated = false;
+                console.log(`Neuer Spieler auf Slot ${player.id}`);
             } else {
                 socket.emit('full');
                 return;
             }
         }
+        
+        saveGame(); // Speichern, dass der Slot belegt ist
 
         const activeCount = gameState.players.filter(p => p.active && !p.eliminated).length;
         if (activeCount >= 2 && !gameState.gameStarted) {
             gameState.gameStarted = true;
             gameState.turnPhase = 'ROLL';
             io.emit('log', { msg: "Das Spiel beginnt!", color: "#fff" });
+            saveGame();
         }
 
         socket.emit('init', { id: player.id, state: gameState });
@@ -93,6 +127,7 @@ io.on('connection', (socket) => {
 
         gameState.turnPhase = 'ANIMATING';
         const roll = Math.floor(Math.random() * 6) + 1;
+        saveGame(); // Zustand speichern
         
         io.emit('animDice', { roll: roll, pId: p.id });
 
@@ -104,6 +139,7 @@ io.on('connection', (socket) => {
             }
             p.pos = newPos;
             handleLanding(p);
+            saveGame(); // Nach Landung speichern
         }, 2000);
     });
 
@@ -120,6 +156,7 @@ io.on('connection', (socket) => {
             io.emit('log', { msg: `P${p.id} zieht weiter.`, color: "#aaa" });
         }
         endTurn();
+        saveGame();
     });
 
     socket.on('offerTrade', (data) => {
@@ -136,7 +173,7 @@ io.on('connection', (socket) => {
 
         io.emit('updateState', gameState);
         io.emit('tradeRequest', gameState.activeTrade);
-        io.emit('log', { msg: `P${buyer.id} bietet P${owner.id} ${offer} Sanity für ${boardData[propIdx].name}.`, color: "#fb0" });
+        saveGame();
     });
 
     socket.on('respondTrade', (data) => {
@@ -160,13 +197,13 @@ io.on('connection', (socket) => {
         gameState.turnPhase = trade.returnPhase;
         gameState.activeTrade = null;
         io.emit('updateState', gameState);
+        saveGame();
     });
 
     socket.on('disconnect', () => {
         const p = getPlayerBySocket(socket.id);
         if (p) {
             p.active = false;
-            // Wir löschen die Session nicht, falls er reconnected
             io.emit('updateState', gameState);
         }
     });
@@ -187,7 +224,6 @@ function handleLanding(p) {
             owner.sanity += field.rent;
             io.emit('log', { msg: `P${p.id} zahlt ${field.rent} an P${owner.id}.`, color: "#f44" });
             
-            // Check Tod
             if (p.sanity <= 0) {
                 eliminatePlayer(p);
             } else {
@@ -201,7 +237,6 @@ function handleLanding(p) {
             endTurn();
         }
     } else if (field.type === 'event') {
-         // EREIGNISKARTE
          const gain = Math.random() > 0.5;
          let val = 0;
          let txt = "";
@@ -210,24 +245,25 @@ function handleLanding(p) {
          if(gain) {
              val = 15;
              title = "LICHTBLICK";
-             txt = "Du findest eine alte Rune, die deinen Geist stärkt. (+15 Sanity)";
+             txt = "Du findest eine alte Rune. (+15 Sanity)";
              p.sanity = Math.min(100, p.sanity + val);
          } else {
              val = -15;
              title = "DUNKLE VISION";
-             txt = "Schatten flüstern deinen Namen. Du verlierst den Verstand. (-15 Sanity)";
+             txt = "Schatten flüstern deinen Namen. (-15 Sanity)";
              p.sanity -= 15;
          }
          
-         // An ALLE senden
+         // Sende Event explizit
          io.emit('showEvent', { title: title, desc: txt, type: gain ? 'good' : 'bad' });
          io.emit('log', { msg: `Event: ${val > 0 ? '+' : ''}${val} Sanity`, color: gain ? "#0f0" : "#f00" });
 
          if (p.sanity <= 0) {
-             setTimeout(() => eliminatePlayer(p), 3000); // Kurz warten damit man das Event lesen kann
+             setTimeout(() => eliminatePlayer(p), 4000); 
          } else {
-             setTimeout(endTurn, 4000); // 4 Sekunden Lesezeit
+             setTimeout(endTurn, 5000); // Längere Pause zum Lesen
          }
+         saveGame();
 
     } else if (field.type === 'go-to-jail') {
         p.pos = 7;
@@ -242,44 +278,34 @@ function handleLanding(p) {
             endTurn();
         }
     }
+    saveGame();
 }
 
 function eliminatePlayer(p) {
     p.sanity = 0;
     p.eliminated = true;
-    p.owned = []; // Felder freigeben!
+    p.owned = []; 
     io.emit('log', { msg: `SPIELER ${p.id} IST DEM WAHNSINN VERFALLEN!`, color: "#f00" });
-    io.emit('gameOver', { loserId: p.id }); // Client kann Sound abspielen oder Anzeige machen
-    
-    // Prüfen ob nur noch einer übrig ist
-    const survivors = gameState.players.filter(pl => !pl.eliminated && pl.session); // session check damit leere slots nicht zählen
-    if (survivors.length === 1) {
-        io.emit('log', { msg: `SPIELER ${survivors[0].id} HAT ÜBERLEBT! SIEG!`, color: "#0f0" });
-        gameState.gameStarted = false;
-    }
-
+    io.emit('gameOver', { loserId: p.id });
     io.emit('updateState', gameState);
+    saveGame();
     endTurn();
 }
 
 function endTurn() {
     if(!gameState.gameStarted) return;
-    
-    // Nächster Spieler, aber überspringe eliminierte oder inaktive
     let attempts = 0;
     let found = false;
-    
     do {
         gameState.currentPlayerIdx = (gameState.currentPlayerIdx + 1) % 4;
         const nextP = gameState.players[gameState.currentPlayerIdx];
-        if (nextP.active && !nextP.eliminated) {
-            found = true;
-        }
+        if (nextP.active && !nextP.eliminated) found = true;
         attempts++;
     } while (!found && attempts < 10);
 
     gameState.turnPhase = 'ROLL';
     io.emit('updateState', gameState);
+    saveGame();
 }
 
 const PORT = process.env.PORT || 3000;
