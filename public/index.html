@@ -17,9 +17,7 @@
 
         .horror-title { font-family: 'Nosifer', cursive; color: #8b0000; text-shadow: 0 0 10px rgba(139, 0, 0, 0.7); }
 
-        #board-container {
-            width: 100%; max-width: 600px; aspect-ratio: 1 / 1; position: relative; margin: 10px auto;
-        }
+        #board-container { width: 100%; max-width: 600px; aspect-ratio: 1 / 1; position: relative; margin: 10px auto; }
 
         #board {
             display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
@@ -43,7 +41,6 @@
         .cell:hover { filter: brightness(1.2); border-color: #555; }
         .cell-header { position: absolute; top: 0; width: 100%; height: 20%; }
 
-        /* Spieler Tokens */
         .player {
             width: clamp(14px, 3vw, 24px); height: clamp(14px, 3vw, 24px); border-radius: 50%;
             position: absolute; z-index: 100; display: none; align-items: center; justify-content: center;
@@ -67,8 +64,7 @@
 
         .btn-trade {
             position: absolute; top: 10px; right: 10px; background: #000; color: #fb0;
-            border: 1px solid #fb0; padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
-            z-index: 50;
+            border: 1px solid #fb0; padding: 5px 10px; font-size: 0.8rem; cursor: pointer; z-index: 50;
         }
 
         #log {
@@ -88,18 +84,19 @@
 
         .stats-box { padding: 4px; border: 1px solid #333; background: rgba(0,0,0,0.8); display: none; }
         .stats-box.active-turn { border: 2px solid white; box-shadow: 0 0 10px #fff; }
+        .stats-box.eliminated { opacity: 0.5; border-color: #333; filter: grayscale(100%); }
 
-        /* Trading List Styles */
-        .trade-list-item {
-            width: 100%; padding: 10px; margin: 5px 0; background: #222; border: 1px solid #444;
-            cursor: pointer; display: flex; justify-content: space-between;
-        }
+        .trade-list-item { width: 100%; padding: 10px; margin: 5px 0; background: #222; border: 1px solid #444; cursor: pointer; display: flex; justify-content: space-between; }
         .trade-list-item:hover { background: #333; border-color: #888; }
+        
+        /* Event Card Style */
+        .event-card-good { border: 2px solid #0f0; background: rgba(0, 50, 0, 0.9); box-shadow: 0 0 20px #0f0; }
+        .event-card-bad { border: 2px solid #f00; background: rgba(50, 0, 0, 0.9); box-shadow: 0 0 20px #f00; }
     </style>
 </head>
 <body>
 
-    <button onclick="openTradeMenu()" class="btn-trade">SCHWARZMARKT (Handel)</button>
+    <button onclick="openTradeMenu()" class="btn-trade">SCHWARZMARKT</button>
 
     <h1 class="horror-title text-2xl mb-1">MONOPOLY DES WAHNSINNS</h1>
     <div id="status-display" class="text-xs text-yellow-500 mb-2">Verbinde...</div>
@@ -127,33 +124,28 @@
 
     <div id="log"></div>
 
-    <!-- UNIVERSAL MODAL -->
+    <!-- MODAL -->
     <div id="modal" class="overlay">
-        <h2 id="modal-title" class="horror-title text-xl mb-4 text-red-500">TITEL</h2>
-        <p id="modal-desc" class="mb-4 max-w-md px-4 text-gray-300 text-sm">Text...</p>
-        
-        <!-- Bereich für Marktplatz Listen -->
-        <div id="trade-list-area" class="w-full max-w-md mb-4 max-h-60 overflow-y-auto hidden"></div>
+        <!-- Inhalt Container für Styling (Event Karten) -->
+        <div id="modal-content" class="bg-black/90 p-6 rounded-lg border border-gray-600 max-w-md w-full flex flex-col items-center">
+            <h2 id="modal-title" class="horror-title text-2xl mb-4 text-red-500">TITEL</h2>
+            <p id="modal-desc" class="mb-4 text-gray-300 text-sm text-center">Text...</p>
+            
+            <div id="trade-list-area" class="w-full mb-4 max-h-60 overflow-y-auto hidden"></div>
+            <div id="trade-input-area" class="hidden mb-4">
+                <input type="number" id="trade-offer-input" placeholder="Angebot" class="bg-gray-800 border border-gray-500 text-white p-2 rounded w-32 text-center">
+            </div>
 
-        <!-- Input für Angebote -->
-        <div id="trade-input-area" class="hidden mb-4">
-            <input type="number" id="trade-offer-input" placeholder="Sanity Angebot" class="bg-gray-800 border border-gray-500 text-white p-2 rounded w-32 text-center">
+            <div id="modal-actions" class="flex gap-2 flex-wrap justify-center"></div>
         </div>
-
-        <div id="modal-actions" class="flex gap-2 flex-wrap justify-center"></div>
     </div>
 
     <script>
         const socket = io();
         let myId = null;
         let currentGameState = null;
-        
-        // Session Handling
         let sessionId = localStorage.getItem('monopoly_session');
-        if (!sessionId) {
-            sessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
-            localStorage.setItem('monopoly_session', sessionId);
-        }
+        if (!sessionId) { sessionId = Math.random().toString(36).substring(2); localStorage.setItem('monopoly_session', sessionId); }
 
         const boardData = [
             { name: "START", type: "start" }, { name: "Keller", color: "#300" }, { name: "Schicksal" }, { name: "Dachboden", color: "#300" },
@@ -164,7 +156,6 @@
             { name: "Stimmen" }, { name: "HÖLLENTOR" }, { name: "Abgrund", color: "#222" }, { name: "Schicksal" },
             { name: "Leere", color: "#111" }, { name: "Zitadelle", color: "#000" }, { name: "Flüsterstimmen" }, { name: "ENDSTATION", color: "#800" }
         ];
-
         const gridMap = [
             [7,7],[7,6],[7,5],[7,4],[7,3],[7,2],[7,1],[7,0],[6,0],[5,0],[4,0],[3,0],[2,0],[1,0],
             [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]
@@ -173,67 +164,64 @@
         // INIT
         const board = document.getElementById('board');
         boardData.forEach((f, i) => {
-            const cell = document.createElement('div');
-            cell.className = 'cell';
-            const pos = gridMap[i];
-            cell.style.gridRow = pos[0] + 1;
-            cell.style.gridColumn = pos[1] + 1;
-            
-            if (f.color) {
-                const h = document.createElement('div'); h.className = 'cell-header'; h.style.background = f.color; cell.appendChild(h);
-            }
+            const cell = document.createElement('div'); cell.className = 'cell';
+            const pos = gridMap[i]; cell.style.gridRow = pos[0]+1; cell.style.gridColumn = pos[1]+1;
+            if(f.color) { const h = document.createElement('div'); h.className = 'cell-header'; h.style.background = f.color; cell.appendChild(h); }
             const n = document.createElement('div'); n.innerText = f.name; cell.appendChild(n);
             const dot = document.createElement('div'); dot.id = `owner-${i}`; dot.className = 'owner-dot'; cell.appendChild(dot);
             board.appendChild(cell);
         });
-
         [1,2,3,4].forEach(id => {
-            const token = document.createElement('div');
-            token.id = `token-${id}`;
-            token.className = `player player-${id}`;
-            token.innerText = ['👁','🕯','💀','🦇'][id-1];
-            document.getElementById('board-container').appendChild(token);
+            const t = document.createElement('div'); t.id=`token-${id}`; t.className=`player player-${id}`; t.innerText=['👁','🕯','💀','🦇'][id-1];
+            document.getElementById('board-container').appendChild(t);
         });
 
-        // --- SOCKETS ---
-
-        socket.on('connect', () => {
-            socket.emit('joinGame', sessionId);
-        });
-
-        socket.on('init', (data) => {
-            myId = data.id;
-            document.getElementById('status-display').innerText = `Du bist Spieler ${myId}`;
-        });
-
-        socket.on('full', () => document.body.innerHTML = "<h1 style='color:red;text-align:center;margin-top:50px'>SPIEL IST VOLL!</h1>");
-
+        // SOCKETS
+        socket.on('connect', () => socket.emit('joinGame', sessionId));
+        socket.on('init', (data) => { myId = data.id; document.getElementById('status-display').innerText = `Du bist Spieler ${myId}`; });
+        socket.on('full', () => document.body.innerHTML = "<h1 style='color:red;text-align:center;'>VOLL</h1>");
+        
         socket.on('animDice', async (data) => {
-            const disp = document.getElementById('dice-display');
-            document.getElementById('dice-btn').disabled = true;
-            for(let i=0; i<10; i++) {
-                disp.innerText = Math.floor(Math.random() * 6) + 1;
-                await new Promise(r => setTimeout(r, 80));
-            }
-            disp.innerText = data.roll;
+            const d = document.getElementById('dice-display');
+            for(let i=0;i<10;i++) { d.innerText = Math.floor(Math.random()*6)+1; await new Promise(r=>setTimeout(r,80)); }
+            d.innerText = data.roll;
         });
 
-        socket.on('log', (data) => {
-            const l = document.getElementById('log');
-            const d = document.createElement('div');
-            d.style.color = data.color || "#aaa";
-            d.innerText = "> " + data.msg;
-            l.prepend(d);
+        socket.on('log', (d) => {
+            const l = document.getElementById('log'); const el = document.createElement('div');
+            el.style.color = d.color||"#aaa"; el.innerText = "> "+d.msg; l.prepend(el);
         });
 
-        socket.on('tradeRequest', (trade) => {
-            if (myId === trade.targetId) {
-                const buyerId = trade.sourceId;
-                const propName = boardData[trade.propIdx].name;
-                showModal("HANDELSANGEBOT", `P${buyerId} bietet ${trade.offer} Sanity für ${propName}.`, false, false,
-                    [{ txt: "ANNEHMEN", cb: () => { socket.emit('respondTrade', {accepted:true}); closeModal(); }, col: "green" },
-                     { txt: "ABLEHNEN", cb: () => { socket.emit('respondTrade', {accepted:false}); closeModal(); }, col: "red" }]);
+        // EVENT ANZEIGE (Für alle)
+        socket.on('showEvent', (data) => {
+            const content = document.getElementById('modal-content');
+            // Styling zurücksetzen
+            content.classList.remove('event-card-good', 'event-card-bad');
+            
+            if(data.type === 'good') {
+                content.classList.add('event-card-good');
+                document.getElementById('modal-title').style.color = '#0f0';
+            } else {
+                content.classList.add('event-card-bad');
+                document.getElementById('modal-title').style.color = '#f00';
             }
+
+            showModal(data.title, data.desc, false, false, [{ txt: "OK", cb: closeModal, col: "gray" }]);
+            
+            // Auto-Schließen nach 4 Sekunden falls keiner drückt
+            setTimeout(closeModal, 4000);
+        });
+
+        socket.on('tradeRequest', (t) => {
+            if(myId===t.targetId) {
+                showModal("HANDEL", `P${t.sourceId} bietet ${t.offer} für ${boardData[t.propIdx].name}.`, false, false,
+                [{txt:"ANNEHMEN",cb:()=>{socket.emit('respondTrade',{accepted:true});closeModal();},col:"green"},
+                 {txt:"ABLEHNEN",cb:()=>{socket.emit('respondTrade',{accepted:false});closeModal();},col:"red"}]);
+            }
+        });
+
+        socket.on('gameOver', (data) => {
+            if (data.loserId === myId) alert("DU BIST DEM WAHNSINN VERFALLEN!");
         });
 
         socket.on('updateState', (state) => {
@@ -242,27 +230,40 @@
         });
 
         function updateUI(state) {
+            // Reset Owner Dots (falls jemand gestorben ist)
+            document.querySelectorAll('.owner-dot').forEach(d => d.style.background = 'transparent');
+
             state.players.forEach(p => {
                 const box = document.getElementById(`p${p.id}-box`);
                 const token = document.getElementById(`token-${p.id}`);
                 
                 if (p.active) {
                     box.style.display = 'block';
-                    if (state.gameStarted && state.players[state.currentPlayerIdx].id === p.id) box.classList.add('active-turn');
-                    else box.classList.remove('active-turn');
                     
-                    token.style.display = 'flex';
-                    document.getElementById(`p${p.id}-sanity`).innerText = Math.floor(p.sanity);
-                    document.getElementById(`p${p.id}-bar`).style.width = Math.max(0, p.sanity) + '%';
-
-                    const target = gridMap[p.pos];
-                    const cellSize = document.getElementById('board').offsetWidth / 8;
-                    const offX = (p.id === 1 || p.id === 3) ? -5 : 5;
-                    const offY = (p.id === 1 || p.id === 2) ? -5 : 5;
-                    token.style.top = (target[0] * cellSize + (cellSize/2) - (token.offsetHeight/2) + offY) + 'px';
-                    token.style.left = (target[1] * cellSize + (cellSize/2) - (token.offsetWidth/2) + offX) + 'px';
-
-                    p.owned.forEach(idx => document.getElementById(`owner-${idx}`).style.background = p.color);
+                    if (p.eliminated) {
+                        // TOT
+                        box.classList.add('eliminated');
+                        document.getElementById(`p${p.id}-sanity`).innerText = "TOT";
+                        token.style.display = 'none';
+                    } else {
+                        // LEBENDIG
+                        box.classList.remove('eliminated');
+                        if (state.gameStarted && state.players[state.currentPlayerIdx].id === p.id) box.classList.add('active-turn');
+                        else box.classList.remove('active-turn');
+                        
+                        token.style.display = 'flex';
+                        document.getElementById(`p${p.id}-sanity`).innerText = Math.floor(p.sanity);
+                        document.getElementById(`p${p.id}-bar`).style.width = Math.max(0, p.sanity) + '%';
+    
+                        const target = gridMap[p.pos];
+                        const cellSize = document.getElementById('board').offsetWidth / 8;
+                        const offX = (p.id === 1 || p.id === 3) ? -5 : 5;
+                        const offY = (p.id === 1 || p.id === 2) ? -5 : 5;
+                        token.style.top = (target[0]*cellSize+(cellSize/2)-(token.offsetHeight/2)+offY)+'px';
+                        token.style.left = (target[1]*cellSize+(cellSize/2)-(token.offsetWidth/2)+offX)+'px';
+    
+                        p.owned.forEach(idx => document.getElementById(`owner-${idx}`).style.background = p.color);
+                    }
                 } else {
                     box.style.display = 'none';
                     token.style.display = 'none';
@@ -273,109 +274,85 @@
             const diceBtn = document.getElementById('dice-btn');
             const myTurn = (state.players[state.currentPlayerIdx].id === myId);
 
-            if (!state.gameStarted) { centerMsg.innerText = "Warte auf min. 2 Spieler..."; diceBtn.disabled = true; return; }
+            if (!state.gameStarted) { centerMsg.innerText = "Warte..."; diceBtn.disabled = true; return; }
 
-            if (state.turnPhase === 'TRADING') { centerMsg.innerText = "Handel läuft..."; diceBtn.disabled = true; }
-            else if (state.turnPhase === 'ROLL') {
-                centerMsg.innerText = myTurn ? "DEIN ZUG!" : `P${state.currentPlayerIdx+1} ist dran`;
+            if (state.turnPhase === 'ROLL') {
+                centerMsg.innerText = myTurn ? "DEIN ZUG" : `P${state.currentPlayerIdx+1}`;
                 centerMsg.style.color = myTurn ? "#0f0" : "#888";
                 diceBtn.disabled = !myTurn;
-                if(myTurn) closeModal();
+                if(myTurn) {
+                    // Modal nur schließen, wenn es kein Event Modal ist (das soll sichtbar bleiben)
+                    const modal = document.getElementById('modal');
+                    if(modal.style.display === 'flex') {
+                        // Hack: Wir checken ob es eine Eventkarte ist (hat border colors), wenn nicht, schließen.
+                        const content = document.getElementById('modal-content');
+                        if(!content.classList.contains('event-card-good') && !content.classList.contains('event-card-bad')) {
+                            closeModal();
+                        }
+                    }
+                }
             } else if (state.turnPhase === 'DECISION' && myTurn) {
-                showModal("ORT VERSIEGELN?", `${boardData[state.players[state.currentPlayerIdx].pos].name} für ${state.currentFieldPrice} Sanity kaufen?`, false, false,
-                    [{ txt: "KAUFEN", cb: () => { socket.emit('decision', 'buy'); closeModal(); }, col: "green" },
-                     { txt: "WEITER", cb: () => { socket.emit('decision', 'pass'); closeModal(); }, col: "gray" }]);
+                // Reset styling für Kauf
+                document.getElementById('modal-content').classList.remove('event-card-good', 'event-card-bad');
+                document.getElementById('modal-title').style.color = '#d1d1d1';
+                showModal("KAUFEN?", `${boardData[state.players[state.currentPlayerIdx].pos].name}: ${state.currentFieldPrice}?`, false, false,
+                [{txt:"JA",cb:()=>{socket.emit('decision','buy');closeModal();},col:"green"},{txt:"NEIN",cb:()=>{socket.emit('decision','pass');closeModal();},col:"gray"}]);
             }
         }
 
-        // --- HANDELS UI LOGIK ---
-
+        // HANDEL UI
         function openTradeMenu() {
-            if(!currentGameState || !currentGameState.gameStarted) return alert("Spiel läuft noch nicht.");
+            if(!currentGameState || !currentGameState.gameStarted) return;
+            // Reset Styling
+            document.getElementById('modal-content').classList.remove('event-card-good', 'event-card-bad');
+            document.getElementById('modal-title').style.color = '#fb0';
             
-            // 1. Spieler Liste anzeigen
-            const list = document.getElementById('trade-list-area');
-            list.innerHTML = "";
+            const list = document.getElementById('trade-list-area'); list.innerHTML = "";
             let found = false;
-
             currentGameState.players.forEach(p => {
-                if(p.active && p.id !== myId) {
+                if(p.active && !p.eliminated && p.id !== myId) {
                     found = true;
-                    const item = document.createElement('div');
-                    item.className = "trade-list-item";
-                    item.innerHTML = `<span>Spieler ${p.id}</span> <span>Besitz: ${p.owned.length}</span>`;
-                    item.onclick = () => showPlayerProps(p);
-                    list.appendChild(item);
+                    const el = document.createElement('div'); el.className="trade-list-item";
+                    el.innerHTML=`<span>P${p.id}</span><span>Besitz: ${p.owned.length}</span>`;
+                    el.onclick=()=>showPProps(p); list.appendChild(el);
                 }
             });
-
-            if(!found) list.innerHTML = "<div class='p-2'>Keine anderen Spieler aktiv.</div>";
-
-            showModal("SCHWARZMARKT", "Wähle einen Spieler:", false, true, [{ txt: "SCHLIESSEN", cb: closeModal, col: "gray" }]);
+            if(!found) list.innerHTML="<div class='p-2'>Niemand da.</div>";
+            showModal("SCHWARZMARKT", "Wähle Partner:", false, true, [{txt:"ZU",cb:closeModal,col:"gray"}]);
         }
-
-        function showPlayerProps(player) {
-            const list = document.getElementById('trade-list-area');
-            list.innerHTML = "";
-            
-            if(player.owned.length === 0) {
-                list.innerHTML = "<div class='p-2'>Dieser Spieler besitzt nichts.</div>";
-            } else {
-                player.owned.forEach(propIdx => {
-                    const item = document.createElement('div');
-                    item.className = "trade-list-item";
-                    item.innerText = boardData[propIdx].name;
-                    item.onclick = () => showOfferInput(player.id, propIdx);
-                    list.appendChild(item);
-                });
-            }
-            
-            showModal(`BESITZ VON P${player.id}`, "Wähle einen Ort:", false, true, 
-                [{ txt: "ZURÜCK", cb: openTradeMenu, col: "gray" }]);
+        function showPProps(p) {
+            const list = document.getElementById('trade-list-area'); list.innerHTML = "";
+            if(p.owned.length===0) list.innerHTML="<div class='p-2'>Besitzt nichts.</div>";
+            p.owned.forEach(idx => {
+                const el = document.createElement('div'); el.className="trade-list-item";
+                el.innerText=boardData[idx].name; el.onclick=()=>showOffer(p.id, idx); list.appendChild(el);
+            });
+            showModal(`P${p.id} BESITZ`, "Wähle Ort:", false, true, [{txt:"ZURÜCK",cb:openTradeMenu,col:"gray"}]);
         }
-
-        function showOfferInput(targetId, propIdx) {
-            showModal("ANGEBOT MACHEN", `Wie viel bietest du P${targetId} für ${boardData[propIdx].name}?`, true, false,
-                [{ txt: "SENDEN", cb: () => sendTradeOffer(propIdx), col: "blue" },
-                 { txt: "ABBRECHEN", cb: openTradeMenu, col: "gray" }]);
+        function showOffer(tid, idx) {
+            showModal("ANGEBOT", `Für ${boardData[idx].name}:`, true, false, 
+            [{txt:"BIETEN",cb:()=>sendTrade(idx),col:"blue"},{txt:"ABBRECHEN",cb:openTradeMenu,col:"gray"}]);
         }
-
-        function sendTradeOffer(idx) {
+        function sendTrade(idx) {
             const val = document.getElementById('trade-offer-input').value;
-            if (val && val > 0) {
-                socket.emit('offerTrade', { propIdx: idx, offer: val });
-                closeModal();
-            } else {
-                alert("Bitte Betrag eingeben.");
-            }
+            if(val>0) { socket.emit('offerTrade',{propIdx:idx,offer:val}); closeModal(); }
         }
 
-        // Helper
-        function showModal(title, text, showInput, showList, actions) {
+        function showModal(t,d,inp,lst,acts) {
             const m = document.getElementById('modal');
-            document.getElementById('modal-title').innerText = title;
-            document.getElementById('modal-desc').innerText = text;
-            
-            document.getElementById('trade-input-area').style.display = showInput ? 'block' : 'none';
-            if(showInput) document.getElementById('trade-offer-input').value = '';
-
-            document.getElementById('trade-list-area').style.display = showList ? 'block' : 'none';
-
-            const actContainer = document.getElementById('modal-actions');
-            actContainer.innerHTML = '';
-            if (actions) {
-                actions.forEach(a => {
-                    const btn = document.createElement('button');
-                    btn.innerText = a.txt; btn.onclick = a.cb;
-                    let bg = a.col === 'green' ? 'bg-green-700' : (a.col === 'red' ? 'bg-red-700' : (a.col === 'blue' ? 'bg-blue-700' : 'bg-gray-700'));
-                    btn.className = `px-4 py-2 text-xs rounded text-white border border-gray-500 ${bg} hover:brightness-125`;
-                    actContainer.appendChild(btn);
-                });
-            }
-            m.style.display = 'flex';
+            document.getElementById('modal-title').innerText=t; document.getElementById('modal-desc').innerText=d;
+            document.getElementById('trade-input-area').style.display=inp?'block':'none';
+            if(inp) document.getElementById('trade-offer-input').value='';
+            document.getElementById('trade-list-area').style.display=lst?'block':'none';
+            const ac = document.getElementById('modal-actions'); ac.innerHTML='';
+            if(acts) acts.forEach(a=>{
+                const b=document.createElement('button'); b.innerText=a.txt; b.onclick=a.cb;
+                b.className=`px-4 py-2 text-xs rounded text-white border border-gray-500 ${a.col==='green'?'bg-green-700':a.col==='red'?'bg-red-700':a.col==='blue'?'bg-blue-700':'bg-gray-700'}`;
+                ac.appendChild(b);
+            });
+            m.style.display='flex';
         }
-
-        function closeModal() { document.getElementById('modal').style.display = 'none'; }
+        function closeModal() { document.getElementById('modal').style.display='none'; }
         function sendRoll() { socket.emit('rollDice'); }
     </script>
 </body>
