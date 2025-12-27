@@ -1,314 +1,322 @@
-const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
-const path = require('path');
-const fs = require('fs');
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monopoly des Wahnsinns</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Nosifer&family=Special+Elite&display=swap');
 
-app.use(express.static(path.join(__dirname, 'public')));
+        body {
+            background-color: #050505; color: #d1d1d1; font-family: 'Special Elite', cursive;
+            min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 10px; overflow-x: hidden;
+        }
 
-const DATA_FILE = 'game_data.json';
+        .horror-title { font-family: 'Nosifer', cursive; color: #8b0000; text-shadow: 0 0 10px rgba(139, 0, 0, 0.7); }
 
-const boardData = [
-    { name: "START", type: "start" },
-    { name: "Keller", type: "prop", price: 15, rent: 4, color: "#300", group: "brown" },
-    { name: "Schicksal", type: "event" },
-    { name: "Dachboden", type: "prop", price: 18, rent: 5, color: "#300", group: "brown" },
-    { name: "Blutopfer", type: "tax", cost: 10 },
-    { name: "Ruine", type: "prop", price: 22, rent: 6, color: "#330", group: "yellow" },
-    { name: "Flüstergang", type: "event" },
-    { name: "VERLASSEN", type: "jail" },
-    { name: "Moor", type: "prop", price: 25, rent: 8, color: "#030", group: "green" },
-    { name: "Schicksal", type: "event" },
-    { name: "Wald", type: "prop", price: 28, rent: 10, color: "#030", group: "green" },
-    { name: "Krypta", type: "prop", price: 32, rent: 12, color: "#003", group: "blue" },
-    { name: "Irrlichter", type: "event" },
-    { name: "Kanzlei", type: "prop", price: 35, rent: 14, color: "#003", group: "blue" },
-    { name: "RUHEPOL", type: "free" },
-    { name: "Labor", type: "prop", price: 40, rent: 16, color: "#303", group: "pink" },
-    { name: "Schicksal", type: "event" },
-    { name: "Klinik", type: "prop", price: 45, rent: 18, color: "#303", group: "pink" },
-    { name: "Tribut", type: "tax", cost: 15 },
-    { name: "Kathedrale", type: "prop", price: 50, rent: 20, color: "#444", group: "grey" },
-    { name: "Stimmen", type: "event" },
-    { name: "HÖLLENTOR", type: "go-to-jail" },
-    { name: "Abgrund", type: "prop", price: 55, rent: 22, color: "#222", group: "dark" },
-    { name: "Schicksal", type: "event" },
-    { name: "Leere", type: "prop", price: 60, rent: 25, color: "#111", group: "dark" },
-    { name: "Zitadelle", type: "prop", price: 70, rent: 30, color: "#000", group: "final" },
-    { name: "Flüsterstimmen", type: "event" },
-    { name: "ENDSTATION", type: "prop", price: 80, rent: 40, color: "#800", group: "final" }
-];
+        #board-container { width: 100%; max-width: 600px; aspect-ratio: 1 / 1; position: relative; margin: 10px auto; }
 
-// Standardzustand
-let gameState = {
-    players: [
-        { id: 1, session: null, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], active: false, eliminated: false, color: '#d00' },
-        { id: 2, session: null, socketId: null, pos: 0, sanity: 100, icon: '🕯', owned: [], active: false, eliminated: false, color: '#0c6' },
-        { id: 3, session: null, socketId: null, pos: 0, sanity: 100, icon: '💀', owned: [], active: false, eliminated: false, color: '#00f' },
-        { id: 4, session: null, socketId: null, pos: 0, sanity: 100, icon: '🦇', owned: [], active: false, eliminated: false, color: '#a0f' }
-    ],
-    currentPlayerIdx: 0,
-    gameStarted: false,
-    turnPhase: 'WAITING', 
-    activeTrade: null 
-};
+        #board {
+            display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+            gap: 2px; width: 100%; height: 100%; background: #1a1a1a; border: 4px solid #333;
+            box-shadow: 0 0 50px rgba(0,0,0,1);
+        }
 
-// --- PERSISTENZ LADEN ---
-if (fs.existsSync(DATA_FILE)) {
-    try {
-        console.log("Lade gespeicherten Spielstand...");
-        const rawData = fs.readFileSync(DATA_FILE);
-        const loadedState = JSON.parse(rawData);
-        // Wir übernehmen die wichtigen Daten, setzen aber socketId zurück (da neue Verbindung)
-        gameState = loadedState;
-        gameState.players.forEach(p => p.socketId = null); 
-        console.log("Spielstand wiederhergestellt.");
-    } catch (e) {
-        console.error("Fehler beim Laden:", e);
-    }
-}
+        #center-area {
+            grid-column: 2 / 8; grid-row: 2 / 8; background: radial-gradient(circle, #1a0000 0%, #000 80%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 5; border: 1px solid #300; padding: 20px; text-align: center;
+        }
 
-// --- PERSISTENZ SPEICHERN ---
-function saveGame() {
-    try {
-        fs.writeFileSync(DATA_FILE, JSON.stringify(gameState));
-    } catch (e) {
-        console.error("Fehler beim Speichern:", e);
-    }
-}
+        .skull-svg { width: 40%; height: 40%; filter: drop-shadow(0 0 15px #f00); opacity: 0.6; margin-bottom: 10px; }
 
-io.on('connection', (socket) => {
-    
-    socket.on('joinGame', (sessionId) => {
-        let player = gameState.players.find(p => p.session === sessionId);
+        .cell {
+            background: #0d0d0d; border: 1px solid #222; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; font-size: clamp(0.4rem, 1.2vw, 0.7rem);
+            text-align: center; position: relative; padding: 2px; z-index: 10; cursor: pointer;
+        }
+        .cell:hover { filter: brightness(1.2); border-color: #555; }
+        .cell-header { position: absolute; top: 0; width: 100%; height: 20%; }
+
+        .player {
+            width: clamp(14px, 3vw, 24px); height: clamp(14px, 3vw, 24px); border-radius: 50%;
+            position: absolute; z-index: 100; display: none; align-items: center; justify-content: center;
+            font-size: clamp(8px, 2vw, 14px); color: white; border: 2px solid white;
+            transition: all 0.5s ease; box-shadow: 0 0 5px black;
+        }
+        .player-1 { background: #d00; border-color: #f88; }
+        .player-2 { background: #0c6; border-color: #8f8; }
+        .player-3 { background: #06f; border-color: #88f; }
+        .player-4 { background: #90f; border-color: #d8f; }
+
+        .sanity-bar { width: 100%; height: 6px; background: #222; margin-top: 2px; border: 1px solid #444; }
+        .sanity-fill { height: 100%; transition: width 0.5s ease; }
+
+        .btn-dice {
+            background: #4a0000; border: 2px solid #8b0000; color: #eee; padding: 10px 20px;
+            font-family: 'Creepster', cursive; font-size: clamp(1rem, 4vw, 1.5rem);
+            cursor: pointer; min-width: 120px;
+        }
+        .btn-dice:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .btn-trade {
+            position: absolute; top: 10px; right: 10px; background: #000; color: #fb0;
+            border: 1px solid #fb0; padding: 5px 10px; font-size: 0.8rem; cursor: pointer; z-index: 50;
+        }
+
+        #log {
+            height: 100px; width: 100%; max-width: 600px; overflow-y: auto;
+            background: rgba(0,0,0,0.9); border: 1px solid #444; margin-top: 10px;
+            padding: 8px; font-size: 0.75rem; color: #aaa;
+        }
+
+        .overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 9999; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; padding: 20px;
+        }
         
-        if (player) {
-            // BEKANNTER SPIELER (Session ID existiert im geladenen State)
-            console.log(`Spieler ${player.id} reconnected.`);
-            player.socketId = socket.id;
-            player.active = true;
-        } else {
-            // NEUER SPIELER
-            const myPIdx = gameState.players.findIndex(p => !p.session && !p.eliminated);
-            if (myPIdx !== -1) {
-                player = gameState.players[myPIdx];
-                player.session = sessionId;
-                player.socketId = socket.id;
-                player.active = true;
-                // Initiale Werte sicherstellen
-                player.pos = 0; player.sanity = 100; player.owned = []; player.eliminated = false;
-                console.log(`Neuer Spieler auf Slot ${player.id}`);
-            } else {
-                socket.emit('full');
-                return;
+        #modal-content {
+            z-index: 10000; background: #111; padding: 20px; border-radius: 8px;
+            border: 2px solid #444; max-width: 400px; width: 100%; box-shadow: 0 0 50px black;
+        }
+
+        .event-good { border-color: #0f0 !important; box-shadow: 0 0 20px #0f0 !important; background: #030 !important; }
+        .event-bad { border-color: #f00 !important; box-shadow: 0 0 20px #f00 !important; background: #300 !important; }
+
+        .owner-dot { width: 8px; height: 8px; border-radius: 50%; position: absolute; bottom: 2px; right: 2px; }
+        .stats-box { padding: 4px; border: 1px solid #333; background: rgba(0,0,0,0.8); display: none; }
+        .stats-box.active-turn { border: 2px solid white; box-shadow: 0 0 10px #fff; }
+        .stats-box.eliminated { opacity: 0.5; filter: grayscale(100%); }
+        .trade-list-item { width: 100%; padding: 10px; margin: 5px 0; background: #222; border: 1px solid #444; cursor: pointer; display: flex; justify-content: space-between; }
+        .trade-list-item:hover { background: #333; border-color: #888; }
+    </style>
+</head>
+<body>
+
+    <button onclick="openTradeMenu()" class="btn-trade">SCHWARZMARKT</button>
+
+    <h1 class="horror-title text-2xl mb-1">MONOPOLY DES WAHNSINNS</h1>
+    <div id="status-display" class="text-xs text-yellow-500 mb-2">Verbinde...</div>
+    <div id="room-display" class="text-[10px] text-gray-600 mb-1">Lobby: -</div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full max-w-[600px] mb-2 text-[10px] sm:text-xs">
+        <div id="p1-box" class="stats-box border-red-900"><div class="flex justify-between"><span>P1 👁</span> <span id="p1-sanity">100</span></div><div class="sanity-bar"><div id="p1-bar" class="sanity-fill bg-red-600" style="width: 100%;"></div></div></div>
+        <div id="p2-box" class="stats-box border-green-900"><div class="flex justify-between"><span>P2 🕯</span> <span id="p2-sanity">100</span></div><div class="sanity-bar"><div id="p2-bar" class="sanity-fill bg-green-500" style="width: 100%;"></div></div></div>
+        <div id="p3-box" class="stats-box border-blue-900"><div class="flex justify-between"><span>P3 💀</span> <span id="p3-sanity">100</span></div><div class="sanity-bar"><div id="p3-bar" class="sanity-fill bg-blue-600" style="width: 100%;"></div></div></div>
+        <div id="p4-box" class="stats-box border-purple-900"><div class="flex justify-between"><span>P4 🦇</span> <span id="p4-sanity">100</span></div><div class="sanity-bar"><div id="p4-bar" class="sanity-fill bg-purple-600" style="width: 100%;"></div></div></div>
+    </div>
+
+    <div id="board-container">
+        <div id="board">
+            <div id="center-area">
+                <svg class="skull-svg" viewBox="0 0 512 512"><path fill="#500" d="M256 16c-106 0-192 86-192 192 0 62 30 117 76 151l-20 73c-3 10 4 20 15 20h242c11 0 18-10 15-20l-20-73c46-34 76-89 76-151 0-106-86-192-192-192z"/></svg>
+                <div id="center-msg" class="text-xs text-red-500">Warte auf Spieler...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex items-center gap-4 mt-4">
+        <div id="dice-display" class="w-10 h-10 bg-white text-black text-xl flex items-center justify-center font-bold rounded border-2 border-gray-400">?</div>
+        <button id="dice-btn" class="btn-dice" onclick="sendRoll()" disabled>WÜRFELN</button>
+    </div>
+
+    <div id="log"></div>
+
+    <div id="modal" class="overlay">
+        <div id="modal-content">
+            <h2 id="modal-title" class="horror-title text-2xl mb-4 text-red-500">TITEL</h2>
+            <p id="modal-desc" class="mb-6 text-gray-200 text-base font-bold">Text...</p>
+            <div id="trade-list-area" class="w-full mb-4 max-h-60 overflow-y-auto hidden"></div>
+            <div id="trade-input-area" class="hidden mb-4">
+                <input type="number" id="trade-offer-input" placeholder="Angebot" class="bg-gray-800 border border-gray-500 text-white p-2 rounded w-32 text-center">
+            </div>
+            <div id="modal-actions" class="flex gap-2 flex-wrap justify-center"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let myId = null;
+        let currentGameState = null;
+        let sessionId = localStorage.getItem('monopoly_session');
+        if (!sessionId) { sessionId = Math.random().toString(36).substring(2); localStorage.setItem('monopoly_session', sessionId); }
+
+        const boardData = [
+            { name: "START", type: "start" }, { name: "Keller", color: "#300" }, { name: "Schicksal" }, { name: "Dachboden", color: "#300" },
+            { name: "Blutopfer" }, { name: "Ruine", color: "#330" }, { name: "Flüstergang" }, { name: "VERLASSEN" },
+            { name: "Moor", color: "#030" }, { name: "Schicksal" }, { name: "Wald", color: "#030" }, { name: "Krypta", color: "#003" },
+            { name: "Irrlichter" }, { name: "Kanzlei", color: "#003" }, { name: "RUHEPOL" }, { name: "Labor", color: "#303" },
+            { name: "Schicksal" }, { name: "Klinik", color: "#303" }, { name: "Tribut" }, { name: "Kathedrale", color: "#444" },
+            { name: "Stimmen" }, { name: "HÖLLENTOR" }, { name: "Abgrund", color: "#222" }, { name: "Schicksal" },
+            { name: "Leere", color: "#111" }, { name: "Zitadelle", color: "#000" }, { name: "Flüsterstimmen" }, { name: "ENDSTATION", color: "#800" }
+        ];
+        const gridMap = [
+            [7,7],[7,6],[7,5],[7,4],[7,3],[7,2],[7,1],[7,0],[6,0],[5,0],[4,0],[3,0],[2,0],[1,0],
+            [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]
+        ];
+
+        // INIT
+        const board = document.getElementById('board');
+        boardData.forEach((f, i) => {
+            const cell = document.createElement('div'); cell.className = 'cell';
+            const pos = gridMap[i]; cell.style.gridRow = pos[0]+1; cell.style.gridColumn = pos[1]+1;
+            if(f.color) { const h = document.createElement('div'); h.className = 'cell-header'; h.style.background = f.color; cell.appendChild(h); }
+            const n = document.createElement('div'); n.innerText = f.name; cell.appendChild(n);
+            const dot = document.createElement('div'); dot.id = `owner-${i}`; dot.className = 'owner-dot'; cell.appendChild(dot);
+            board.appendChild(cell);
+        });
+        [1,2,3,4].forEach(id => {
+            const t = document.createElement('div'); t.id=`token-${id}`; t.className=`player player-${id}`; t.innerText=['👁','🕯','💀','🦇'][id-1];
+            document.getElementById('board-container').appendChild(t);
+        });
+
+        // SOCKETS
+        socket.on('connect', () => socket.emit('joinGame', sessionId));
+        
+        socket.on('init', (data) => { 
+            myId = data.id; 
+            document.getElementById('status-display').innerText = `Du bist Spieler ${myId}`; 
+            document.getElementById('room-display').innerText = `Lobby: ${data.roomName}`;
+        });
+        
+        socket.on('full', () => document.body.innerHTML = "<h1 style='color:red;text-align:center;'>SERVER VOLL</h1>");
+        
+        socket.on('animDice', async (data) => {
+            const d = document.getElementById('dice-display');
+            for(let i=0;i<10;i++) { d.innerText = Math.floor(Math.random()*6)+1; await new Promise(r=>setTimeout(r,80)); }
+            d.innerText = data.roll;
+        });
+
+        socket.on('log', (d) => {
+            const l = document.getElementById('log'); const el = document.createElement('div');
+            el.style.color = d.color||"#aaa"; el.innerText = "> "+d.msg; l.prepend(el);
+        });
+
+        socket.on('showEvent', (data) => {
+            const content = document.getElementById('modal-content');
+            content.classList.remove('event-good', 'event-bad');
+            if(data.type === 'good') content.classList.add('event-good');
+            else if(data.type === 'bad') content.classList.add('event-bad');
+            showModal(data.title, data.desc, false, false, [{ txt: "OK", cb: closeModal, col: "gray" }]);
+        });
+
+        socket.on('tradeRequest', (t) => {
+            if(myId===t.targetId) {
+                showModal("HANDEL", `P${t.sourceId} bietet ${t.offer} für ${boardData[t.propIdx].name}.`, false, false,
+                [{txt:"ANNEHMEN",cb:()=>{socket.emit('respondTrade',{accepted:true});closeModal();},col:"green"},
+                 {txt:"ABLEHNEN",cb:()=>{socket.emit('respondTrade',{accepted:false});closeModal();},col:"red"}]);
             }
-        }
-        
-        saveGame(); // Speichern, dass der Slot belegt ist
+        });
 
-        const activeCount = gameState.players.filter(p => p.active && !p.eliminated).length;
-        if (activeCount >= 2 && !gameState.gameStarted) {
-            gameState.gameStarted = true;
-            gameState.turnPhase = 'ROLL';
-            io.emit('log', { msg: "Das Spiel beginnt!", color: "#fff" });
-            saveGame();
-        }
+        socket.on('gameOver', (data) => { if (data.loserId === myId) alert("DU BIST DEM WAHNSINN VERFALLEN!"); });
 
-        socket.emit('init', { id: player.id, state: gameState });
-        io.emit('updateState', gameState);
-    });
+        socket.on('updateState', (state) => {
+            currentGameState = state;
+            updateUI(state);
+        });
 
-    socket.on('rollDice', () => {
-        const p = getPlayerBySocket(socket.id);
-        if (!p || !gameState.gameStarted) return;
-        if (gameState.players[gameState.currentPlayerIdx].id !== p.id) return;
-        if (gameState.turnPhase !== 'ROLL') return;
-
-        gameState.turnPhase = 'ANIMATING';
-        const roll = Math.floor(Math.random() * 6) + 1;
-        saveGame(); // Zustand speichern
-        
-        io.emit('animDice', { roll: roll, pId: p.id });
-
-        setTimeout(() => {
-            let newPos = (p.pos + roll) % boardData.length;
-            if (newPos < p.pos) {
-                p.sanity = Math.min(100, p.sanity + 20);
-                io.emit('log', { msg: `P${p.id} passiert START (+20 Sanity).`, color: "#0f0" });
-            }
-            p.pos = newPos;
-            handleLanding(p);
-            saveGame(); // Nach Landung speichern
-        }, 2000);
-    });
-
-    socket.on('decision', (decision) => {
-        const p = getPlayerBySocket(socket.id);
-        if (!p || gameState.turnPhase !== 'DECISION') return;
-        
-        const field = boardData[p.pos];
-        if (decision === 'buy' && p.sanity > field.price) {
-            p.sanity -= field.price;
-            p.owned.push(p.pos);
-            io.emit('log', { msg: `P${p.id} kauft ${field.name}.`, color: "#0f0" });
-        } else {
-            io.emit('log', { msg: `P${p.id} zieht weiter.`, color: "#aaa" });
-        }
-        endTurn();
-        saveGame();
-    });
-
-    socket.on('offerTrade', (data) => {
-        const buyer = getPlayerBySocket(socket.id);
-        const propIdx = parseInt(data.propIdx);
-        const offer = parseInt(data.offer);
-        const owner = gameState.players.find(p => p.owned.includes(propIdx));
-        
-        if (!buyer || !owner || owner.id === buyer.id || buyer.sanity < offer) return;
-
-        const oldPhase = gameState.turnPhase;
-        gameState.turnPhase = 'TRADING';
-        gameState.activeTrade = { sourceId: buyer.id, targetId: owner.id, propIdx, offer, returnPhase: oldPhase };
-
-        io.emit('updateState', gameState);
-        io.emit('tradeRequest', gameState.activeTrade);
-        saveGame();
-    });
-
-    socket.on('respondTrade', (data) => {
-        const trade = gameState.activeTrade;
-        const p = getPlayerBySocket(socket.id);
-        if (!trade || !p || p.id !== trade.targetId) return;
-
-        const buyer = gameState.players.find(pl => pl.id === trade.sourceId);
-        const owner = p;
-
-        if (data.accepted && buyer.sanity >= trade.offer) {
-            buyer.sanity -= trade.offer;
-            owner.sanity += trade.offer;
-            owner.owned = owner.owned.filter(idx => idx !== trade.propIdx);
-            buyer.owned.push(trade.propIdx);
-            io.emit('log', { msg: `Handel akzeptiert!`, color: "#0f0" });
-        } else {
-            io.emit('log', { msg: `Handel abgelehnt.`, color: "#f44" });
-        }
-
-        gameState.turnPhase = trade.returnPhase;
-        gameState.activeTrade = null;
-        io.emit('updateState', gameState);
-        saveGame();
-    });
-
-    socket.on('disconnect', () => {
-        const p = getPlayerBySocket(socket.id);
-        if (p) {
-            p.active = false;
-            io.emit('updateState', gameState);
-        }
-    });
-});
-
-function getPlayerBySocket(socketId) {
-    return gameState.players.find(p => p.socketId === socketId);
-}
-
-function handleLanding(p) {
-    const field = boardData[p.pos];
-    io.emit('updateState', gameState);
-
-    if (field.type === 'prop') {
-        const owner = gameState.players.find(pl => pl.owned.includes(p.pos));
-        if (owner && owner.id !== p.id) {
-            p.sanity -= field.rent;
-            owner.sanity += field.rent;
-            io.emit('log', { msg: `P${p.id} zahlt ${field.rent} an P${owner.id}.`, color: "#f44" });
+        function updateUI(state) {
+            document.querySelectorAll('.owner-dot').forEach(d => d.style.background = 'transparent');
+            state.players.forEach(p => {
+                const box = document.getElementById(`p${p.id}-box`);
+                const token = document.getElementById(`token-${p.id}`);
+                if (p.active) {
+                    box.style.display = 'block';
+                    if (p.eliminated) {
+                        box.classList.add('eliminated'); document.getElementById(`p${p.id}-sanity`).innerText = "TOT"; token.style.display = 'none';
+                    } else {
+                        box.classList.remove('eliminated');
+                        if (state.gameStarted && state.players[state.currentPlayerIdx].id === p.id) box.classList.add('active-turn'); else box.classList.remove('active-turn');
+                        token.style.display = 'flex';
+                        document.getElementById(`p${p.id}-sanity`).innerText = Math.floor(p.sanity);
+                        document.getElementById(`p${p.id}-bar`).style.width = Math.max(0, p.sanity) + '%';
+                        const target = gridMap[p.pos];
+                        const cellSize = document.getElementById('board').offsetWidth / 8;
+                        const offX = (p.id === 1 || p.id === 3) ? -5 : 5; const offY = (p.id === 1 || p.id === 2) ? -5 : 5;
+                        token.style.top = (target[0]*cellSize+(cellSize/2)-(token.offsetHeight/2)+offY)+'px';
+                        token.style.left = (target[1]*cellSize+(cellSize/2)-(token.offsetWidth/2)+offX)+'px';
+                        p.owned.forEach(idx => document.getElementById(`owner-${idx}`).style.background = p.color);
+                    }
+                } else {
+                    box.style.display = 'none'; token.style.display = 'none';
+                }
+            });
+            const centerMsg = document.getElementById('center-msg'); const diceBtn = document.getElementById('dice-btn');
+            const myTurn = (state.players[state.currentPlayerIdx].id === myId);
             
-            if (p.sanity <= 0) {
-                eliminatePlayer(p);
-            } else {
-                endTurn();
+            if (!state.gameStarted) { centerMsg.innerText = "Warte..."; diceBtn.disabled = true; return; }
+
+            if (state.turnPhase === 'ROLL') {
+                centerMsg.innerText = myTurn ? "DEIN ZUG" : `P${state.currentPlayerIdx+1}`;
+                centerMsg.style.color = myTurn ? "#0f0" : "#888";
+                diceBtn.disabled = !myTurn;
+                const content = document.getElementById('modal-content');
+                if(myTurn && !content.classList.contains('event-good') && !content.classList.contains('event-bad')) closeModal();
+            } else if (state.turnPhase === 'DECISION' && myTurn) {
+                document.getElementById('modal-content').classList.remove('event-good', 'event-bad');
+                showModal("KAUFEN?", `${boardData[state.players[state.currentPlayerIdx].pos].name}: ${state.currentFieldPrice}?`, false, false,
+                [{txt:"JA",cb:()=>{socket.emit('decision','buy');closeModal();},col:"green"},{txt:"NEIN",cb:()=>{socket.emit('decision','pass');closeModal();},col:"gray"}]);
             }
-        } else if (!owner && p.sanity > field.price) {
-            gameState.turnPhase = 'DECISION';
-            gameState.currentFieldPrice = field.price;
-            io.emit('updateState', gameState);
-        } else {
-            endTurn();
         }
-    } else if (field.type === 'event') {
-         const gain = Math.random() > 0.5;
-         let val = 0;
-         let txt = "";
-         let title = "";
 
-         if(gain) {
-             val = 15;
-             title = "LICHTBLICK";
-             txt = "Du findest eine alte Rune. (+15 Sanity)";
-             p.sanity = Math.min(100, p.sanity + val);
-         } else {
-             val = -15;
-             title = "DUNKLE VISION";
-             txt = "Schatten flüstern deinen Namen. (-15 Sanity)";
-             p.sanity -= 15;
-         }
-         
-         // Sende Event explizit
-         io.emit('showEvent', { title: title, desc: txt, type: gain ? 'good' : 'bad' });
-         io.emit('log', { msg: `Event: ${val > 0 ? '+' : ''}${val} Sanity`, color: gain ? "#0f0" : "#f00" });
-
-         if (p.sanity <= 0) {
-             setTimeout(() => eliminatePlayer(p), 4000); 
-         } else {
-             setTimeout(endTurn, 5000); // Längere Pause zum Lesen
-         }
-         saveGame();
-
-    } else if (field.type === 'go-to-jail') {
-        p.pos = 7;
-        io.emit('updateState', gameState);
-        endTurn();
-    } else {
-        if (field.type === 'tax') { 
-            p.sanity -= field.cost; 
-            if (p.sanity <= 0) eliminatePlayer(p);
-            else endTurn();
-        } else {
-            endTurn();
+        function openTradeMenu() {
+            if(!currentGameState || !currentGameState.gameStarted) return;
+            document.getElementById('modal-content').classList.remove('event-good', 'event-bad');
+            const list = document.getElementById('trade-list-area'); list.innerHTML = "";
+            let found = false;
+            currentGameState.players.forEach(p => {
+                if(p.active && !p.eliminated && p.id !== myId) {
+                    found = true;
+                    const el = document.createElement('div'); el.className="trade-list-item";
+                    el.innerHTML=`<span>P${p.id}</span><span>Besitz: ${p.owned.length}</span>`;
+                    el.onclick=()=>showPProps(p); list.appendChild(el);
+                }
+            });
+            if(!found) list.innerHTML="<div class='text-white p-2'>Niemand da.</div>";
+            showModal("SCHWARZMARKT", "Wähle Partner:", false, true, [{txt:"ZU",cb:closeModal,col:"gray"}]);
         }
-    }
-    saveGame();
-}
+        function showPProps(p) {
+            const list = document.getElementById('trade-list-area'); list.innerHTML = "";
+            if(p.owned.length===0) list.innerHTML="<div class='text-white p-2'>Besitzt nichts.</div>";
+            p.owned.forEach(idx => {
+                const el = document.createElement('div'); el.className="trade-list-item";
+                el.innerText=boardData[idx].name; el.onclick=()=>showOffer(p.id, idx); list.appendChild(el);
+            });
+            showModal(`P${p.id} BESITZ`, "Wähle Ort:", false, true, [{txt:"ZURÜCK",cb:openTradeMenu,col:"gray"}]);
+        }
+        function showOffer(tid, idx) {
+            showModal("ANGEBOT", `Für ${boardData[idx].name}:`, true, false, 
+            [{txt:"BIETEN",cb:()=>sendTrade(idx),col:"blue"},{txt:"ABBRECHEN",cb:openTradeMenu,col:"gray"}]);
+        }
+        function sendTrade(idx) {
+            const val = document.getElementById('trade-offer-input').value;
+            if(val>0) { socket.emit('offerTrade',{propIdx:idx,offer:val}); closeModal(); }
+        }
 
-function eliminatePlayer(p) {
-    p.sanity = 0;
-    p.eliminated = true;
-    p.owned = []; 
-    io.emit('log', { msg: `SPIELER ${p.id} IST DEM WAHNSINN VERFALLEN!`, color: "#f00" });
-    io.emit('gameOver', { loserId: p.id });
-    io.emit('updateState', gameState);
-    saveGame();
-    endTurn();
-}
-
-function endTurn() {
-    if(!gameState.gameStarted) return;
-    let attempts = 0;
-    let found = false;
-    do {
-        gameState.currentPlayerIdx = (gameState.currentPlayerIdx + 1) % 4;
-        const nextP = gameState.players[gameState.currentPlayerIdx];
-        if (nextP.active && !nextP.eliminated) found = true;
-        attempts++;
-    } while (!found && attempts < 10);
-
-    gameState.turnPhase = 'ROLL';
-    io.emit('updateState', gameState);
-    saveGame();
-}
-
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server läuft auf ${PORT}`));
+        function showModal(t,d,inp,lst,acts) {
+            const m = document.getElementById('modal');
+            document.getElementById('modal-title').innerText=t; 
+            document.getElementById('modal-desc').innerText=d;
+            document.getElementById('trade-input-area').style.display=inp?'block':'none';
+            if(inp) document.getElementById('trade-offer-input').value='';
+            document.getElementById('trade-list-area').style.display=lst?'block':'none';
+            const ac = document.getElementById('modal-actions'); ac.innerHTML='';
+            if(acts) acts.forEach(a=>{
+                const b=document.createElement('button'); b.innerText=a.txt; b.onclick=a.cb;
+                b.className=`px-4 py-2 text-xs rounded text-white border border-gray-500 ${a.col==='green'?'bg-green-700':a.col==='red'?'bg-red-700':a.col==='blue'?'bg-blue-700':'bg-gray-700'}`;
+                ac.appendChild(b);
+            });
+            m.style.display='flex';
+        }
+        function closeModal() { document.getElementById('modal').style.display='none'; }
+        function sendRoll() { socket.emit('rollDice'); }
+    </script>
+</body>
+</html>
 
 
