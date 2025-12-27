@@ -39,10 +39,10 @@ const boardData = [
 
 let gameState = {
     players: [
-        { id: 1, session: null, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], active: false, color: '#d00' },
-        { id: 2, session: null, socketId: null, pos: 0, sanity: 100, icon: '🕯', owned: [], active: false, color: '#0c6' },
-        { id: 3, session: null, socketId: null, pos: 0, sanity: 100, icon: '💀', owned: [], active: false, color: '#00f' },
-        { id: 4, session: null, socketId: null, pos: 0, sanity: 100, icon: '🦇', owned: [], active: false, color: '#a0f' }
+        { id: 1, session: null, socketId: null, pos: 0, sanity: 100, icon: '👁', owned: [], active: false, eliminated: false, color: '#d00' },
+        { id: 2, session: null, socketId: null, pos: 0, sanity: 100, icon: '🕯', owned: [], active: false, eliminated: false, color: '#0c6' },
+        { id: 3, session: null, socketId: null, pos: 0, sanity: 100, icon: '💀', owned: [], active: false, eliminated: false, color: '#00f' },
+        { id: 4, session: null, socketId: null, pos: 0, sanity: 100, icon: '🦇', owned: [], active: false, eliminated: false, color: '#a0f' }
     ],
     currentPlayerIdx: 0,
     gameStarted: false,
@@ -52,38 +52,29 @@ let gameState = {
 
 io.on('connection', (socket) => {
     
-    // Neuer Login-Flow: Client sendet 'joinGame' mit SessionID aus localStorage
     socket.on('joinGame', (sessionId) => {
         let player = gameState.players.find(p => p.session === sessionId);
-        let myPIdx = -1;
-
+        
         if (player) {
-            // WIEDERKEHRER: Session bekannt
-            console.log(`Spieler ${player.id} ist zurückgekehrt.`);
+            // Spieler kommt zurück
             player.socketId = socket.id;
             player.active = true;
-            myPIdx = gameState.players.indexOf(player);
         } else {
-            // NEUER SPIELER: Freien Slot suchen
-            myPIdx = gameState.players.findIndex(p => !p.session);
+            // Neuer Spieler
+            const myPIdx = gameState.players.findIndex(p => !p.session && !p.eliminated);
             if (myPIdx !== -1) {
-                console.log(`Neuer Spieler auf Slot ${myPIdx + 1}`);
                 player = gameState.players[myPIdx];
-                player.session = sessionId; // Session binden
+                player.session = sessionId;
                 player.socketId = socket.id;
                 player.active = true;
-                // Reset Stats für neuen Spieler
-                player.pos = 0;
-                player.sanity = 100;
-                player.owned = [];
+                player.pos = 0; player.sanity = 100; player.owned = []; player.eliminated = false;
             } else {
                 socket.emit('full');
                 return;
             }
         }
 
-        // Spielstart Prüfung
-        const activeCount = gameState.players.filter(p => p.active).length;
+        const activeCount = gameState.players.filter(p => p.active && !p.eliminated).length;
         if (activeCount >= 2 && !gameState.gameStarted) {
             gameState.gameStarted = true;
             gameState.turnPhase = 'ROLL';
@@ -131,32 +122,17 @@ io.on('connection', (socket) => {
         endTurn();
     });
 
-    // --- HANDELSSYSTEM ---
-
     socket.on('offerTrade', (data) => {
         const buyer = getPlayerBySocket(socket.id);
-        if (!buyer) return;
-
         const propIdx = parseInt(data.propIdx);
         const offer = parseInt(data.offer);
-        
-        // Validierung
         const owner = gameState.players.find(p => p.owned.includes(propIdx));
         
-        if (!owner) return; // Gehört niemandem
-        if (owner.id === buyer.id) return; // Gehört mir selbst
-        if (buyer.sanity < offer) return; // Zu wenig Geld
+        if (!buyer || !owner || owner.id === buyer.id || buyer.sanity < offer) return;
 
-        // Status speichern
         const oldPhase = gameState.turnPhase;
         gameState.turnPhase = 'TRADING';
-        gameState.activeTrade = { 
-            sourceId: buyer.id, 
-            targetId: owner.id, 
-            propIdx: propIdx, 
-            offer: offer, 
-            returnPhase: oldPhase 
-        };
+        gameState.activeTrade = { sourceId: buyer.id, targetId: owner.id, propIdx, offer, returnPhase: oldPhase };
 
         io.emit('updateState', gameState);
         io.emit('tradeRequest', gameState.activeTrade);
@@ -166,18 +142,17 @@ io.on('connection', (socket) => {
     socket.on('respondTrade', (data) => {
         const trade = gameState.activeTrade;
         const p = getPlayerBySocket(socket.id);
-        
         if (!trade || !p || p.id !== trade.targetId) return;
 
         const buyer = gameState.players.find(pl => pl.id === trade.sourceId);
-        const owner = p; // Der Antwortende ist der Besitzer
+        const owner = p;
 
         if (data.accepted && buyer.sanity >= trade.offer) {
             buyer.sanity -= trade.offer;
             owner.sanity += trade.offer;
             owner.owned = owner.owned.filter(idx => idx !== trade.propIdx);
             buyer.owned.push(trade.propIdx);
-            io.emit('log', { msg: `Handel akzeptiert! ${boardData[trade.propIdx].name} gehört nun P${buyer.id}.`, color: "#0f0" });
+            io.emit('log', { msg: `Handel akzeptiert!`, color: "#0f0" });
         } else {
             io.emit('log', { msg: `Handel abgelehnt.`, color: "#f44" });
         }
@@ -190,15 +165,9 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const p = getPlayerBySocket(socket.id);
         if (p) {
-            p.active = false; 
-            // WICHTIG: Wir löschen 'session' NICHT, damit er wiederkommen kann!
-            // Nur wenn Server neustartet, ist der State weg.
+            p.active = false;
+            // Wir löschen die Session nicht, falls er reconnected
             io.emit('updateState', gameState);
-            
-            const activeCount = gameState.players.filter(pl => pl.active).length;
-            if(activeCount < 2 && gameState.gameStarted) {
-                io.emit('log', { msg: "Warte auf Spieler...", color: "#f00" });
-            }
         }
     });
 });
@@ -217,8 +186,13 @@ function handleLanding(p) {
             p.sanity -= field.rent;
             owner.sanity += field.rent;
             io.emit('log', { msg: `P${p.id} zahlt ${field.rent} an P${owner.id}.`, color: "#f44" });
-            checkGameOver();
-            endTurn();
+            
+            // Check Tod
+            if (p.sanity <= 0) {
+                eliminatePlayer(p);
+            } else {
+                endTurn();
+            }
         } else if (!owner && p.sanity > field.price) {
             gameState.turnPhase = 'DECISION';
             gameState.currentFieldPrice = field.price;
@@ -227,42 +201,83 @@ function handleLanding(p) {
             endTurn();
         }
     } else if (field.type === 'event') {
+         // EREIGNISKARTE
          const gain = Math.random() > 0.5;
+         let val = 0;
+         let txt = "";
+         let title = "";
+
          if(gain) {
-             p.sanity = Math.min(100, p.sanity + 10);
-             io.emit('log', { msg: `Event: +10 Sanity`, color: "#fff" });
+             val = 15;
+             title = "LICHTBLICK";
+             txt = "Du findest eine alte Rune, die deinen Geist stärkt. (+15 Sanity)";
+             p.sanity = Math.min(100, p.sanity + val);
          } else {
-             p.sanity -= 10;
-             io.emit('log', { msg: `Event: -10 Sanity`, color: "#f00" });
+             val = -15;
+             title = "DUNKLE VISION";
+             txt = "Schatten flüstern deinen Namen. Du verlierst den Verstand. (-15 Sanity)";
+             p.sanity -= 15;
          }
-         checkGameOver();
-         setTimeout(endTurn, 2000);
+         
+         // An ALLE senden
+         io.emit('showEvent', { title: title, desc: txt, type: gain ? 'good' : 'bad' });
+         io.emit('log', { msg: `Event: ${val > 0 ? '+' : ''}${val} Sanity`, color: gain ? "#0f0" : "#f00" });
+
+         if (p.sanity <= 0) {
+             setTimeout(() => eliminatePlayer(p), 3000); // Kurz warten damit man das Event lesen kann
+         } else {
+             setTimeout(endTurn, 4000); // 4 Sekunden Lesezeit
+         }
+
     } else if (field.type === 'go-to-jail') {
         p.pos = 7;
         io.emit('updateState', gameState);
         endTurn();
     } else {
-        if (field.type === 'tax') { p.sanity -= field.cost; checkGameOver(); }
-        endTurn();
+        if (field.type === 'tax') { 
+            p.sanity -= field.cost; 
+            if (p.sanity <= 0) eliminatePlayer(p);
+            else endTurn();
+        } else {
+            endTurn();
+        }
     }
 }
 
-function checkGameOver() {
-    gameState.players.forEach(p => {
-        if (p.active && p.sanity <= 0) {
-            io.emit('log', { msg: `P${p.id} IST DEM WAHNSINN VERFALLEN!`, color: "#f00" });
-            p.sanity = 0; p.owned = []; 
-        }
-    });
+function eliminatePlayer(p) {
+    p.sanity = 0;
+    p.eliminated = true;
+    p.owned = []; // Felder freigeben!
+    io.emit('log', { msg: `SPIELER ${p.id} IST DEM WAHNSINN VERFALLEN!`, color: "#f00" });
+    io.emit('gameOver', { loserId: p.id }); // Client kann Sound abspielen oder Anzeige machen
+    
+    // Prüfen ob nur noch einer übrig ist
+    const survivors = gameState.players.filter(pl => !pl.eliminated && pl.session); // session check damit leere slots nicht zählen
+    if (survivors.length === 1) {
+        io.emit('log', { msg: `SPIELER ${survivors[0].id} HAT ÜBERLEBT! SIEG!`, color: "#0f0" });
+        gameState.gameStarted = false;
+    }
+
+    io.emit('updateState', gameState);
+    endTurn();
 }
 
 function endTurn() {
     if(!gameState.gameStarted) return;
+    
+    // Nächster Spieler, aber überspringe eliminierte oder inaktive
     let attempts = 0;
+    let found = false;
+    
     do {
         gameState.currentPlayerIdx = (gameState.currentPlayerIdx + 1) % 4;
+        const nextP = gameState.players[gameState.currentPlayerIdx];
+        if (nextP.active && !nextP.eliminated) {
+            found = true;
+        }
         attempts++;
-    } while (!gameState.players[gameState.currentPlayerIdx].active && attempts < 5);
+    } while (!found && attempts < 10);
+
     gameState.turnPhase = 'ROLL';
     io.emit('updateState', gameState);
 }
