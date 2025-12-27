@@ -5,6 +5,7 @@ const io = require('socket.io')(http);
 const path = require('path');
 const fs = require('fs');
 
+// WICHTIG: Hier wird der Ordner 'public' bereitgestellt
 app.use(express.static(path.join(__dirname, 'public')));
 
 const DATA_FILE = 'multigame_data.json';
@@ -68,10 +69,8 @@ let isDirty = false;
 if (fs.existsSync(DATA_FILE)) {
     try {
         const rawData = fs.readFileSync(DATA_FILE, 'utf8');
-        // Wenn Datei leer oder korrupt ist, wird JSON.parse fehlschlagen
         if (rawData) {
             games = JSON.parse(rawData);
-            // Reset Socket IDs da neue Verbindung
             for (let rid in games) {
                 if(games[rid] && games[rid].players) {
                     games[rid].players.forEach(p => p.socketId = null);
@@ -80,8 +79,7 @@ if (fs.existsSync(DATA_FILE)) {
             console.log(`System: ${Object.keys(games).length} Räume erfolgreich geladen.`);
         }
     } catch (e) {
-        console.error("WARNUNG: Spielstand-Datei war korrupt. Starte sauber neu.", e.message);
-        // Datei löschen damit sie nicht wieder stört
+        console.error("WARNUNG: Spielstand korrupt. Reset.", e.message);
         try { fs.unlinkSync(DATA_FILE); } catch(err) {}
         games = {}; 
     }
@@ -91,7 +89,7 @@ if (fs.existsSync(DATA_FILE)) {
 setInterval(() => {
     if (isDirty) {
         fs.writeFile(DATA_FILE, JSON.stringify(games), (err) => {
-            if (err) console.error("Save Error (ignorable):", err.message);
+            if (err) console.error("Save Error:", err.message);
             else isDirty = false;
         });
     }
@@ -147,17 +145,12 @@ io.on('connection', (socket) => {
             foundPlayer.active = true;
             foundGame.lastActivity = Date.now();
             socket.join(roomIdToJoin);
-            
-            // Sende aktuellen Status sofort
             socket.emit('init', { id: foundPlayer.id, state: foundGame, roomName: roomIdToJoin });
-            
-            // Wenn das Spiel schon lief, den User updaten
             if(foundGame.gameStarted) {
                 io.to(roomIdToJoin).emit('log', { msg: `P${foundPlayer.id} ist zurück.`, color: "#aaa" });
             }
         } else {
-            // KEIN SPIELER GEFUNDEN (Oder Server wurde resettet)
-            // Wir suchen einen freien Raum
+            // KEIN SPIELER GEFUNDEN -> Neuen Raum suchen
             let roomIndex = 1;
             while (true) {
                 const rName = `room_${roomIndex}`;
@@ -183,7 +176,6 @@ io.on('connection', (socket) => {
                 }
                 roomIndex++;
             }
-            
             socket.emit('init', { id: foundPlayer.id, state: foundGame, roomName: roomIdToJoin });
         }
         markDirty();
