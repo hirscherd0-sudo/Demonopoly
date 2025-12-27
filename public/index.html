@@ -94,13 +94,14 @@
             height: 20%;
         }
 
+        /* --- SPIELER TOKENS --- */
         .player {
             width: clamp(14px, 3vw, 24px);
             height: clamp(14px, 3vw, 24px);
             border-radius: 50%;
             position: absolute;
             z-index: 100;
-            display: flex;
+            display: none; /* Default hidden until active */
             align-items: center;
             justify-content: center;
             font-size: clamp(8px, 2vw, 14px);
@@ -110,10 +111,11 @@
             box-shadow: 0 0 5px black;
         }
 
-        .player-1 { background: #d00; }
-        .player-2 { background: #0c6; }
-        .player-3 { background: #00f; }
-        .player-4 { background: #a0f; }
+        /* Explizite Farben für alle 4 Spieler */
+        .player-1 { background: #d00; border-color: #f88; } /* Rot */
+        .player-2 { background: #0c6; border-color: #8f8; } /* Grün */
+        .player-3 { background: #06f; border-color: #88f; } /* Blau */
+        .player-4 { background: #90f; border-color: #d8f; } /* Lila */
 
         .sanity-bar {
             width: 100%;
@@ -149,10 +151,11 @@
             position: absolute; bottom: 2px; right: 2px;
         }
 
-        .stats-grid {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
-            width: 100%; max-width: 600px; margin-bottom: 5px; text-xs:
+        .stats-box {
+            padding: 4px; border: 1px solid #333; background: rgba(0,0,0,0.8);
+            display: none; /* Versteckt wenn inaktiv */
         }
+        .stats-box.active-turn { border: 2px solid white; box-shadow: 0 0 10px #fff; }
     </style>
 </head>
 <body>
@@ -161,20 +164,20 @@
     <div id="status-display" class="text-xs text-yellow-500 mb-2">Verbinde...</div>
 
     <!-- STATS FÜR 4 SPIELER -->
-    <div class="stats-grid grid grid-cols-2 sm:grid-cols-4 gap-2 w-full max-w-[600px] mb-2 text-[10px] sm:text-xs">
-        <div id="p1-box" class="p-1 border border-red-900 bg-black/80 hidden">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full max-w-[600px] mb-2 text-[10px] sm:text-xs">
+        <div id="p1-box" class="stats-box border-red-900">
             <div class="flex justify-between"><span>P1 👁</span> <span id="p1-sanity">100</span></div>
             <div class="sanity-bar"><div id="p1-bar" class="sanity-fill bg-red-600" style="width: 100%;"></div></div>
         </div>
-        <div id="p2-box" class="p-1 border border-green-900 bg-black/80 hidden">
+        <div id="p2-box" class="stats-box border-green-900">
             <div class="flex justify-between"><span>P2 🕯</span> <span id="p2-sanity">100</span></div>
             <div class="sanity-bar"><div id="p2-bar" class="sanity-fill bg-green-500" style="width: 100%;"></div></div>
         </div>
-        <div id="p3-box" class="p-1 border border-blue-900 bg-black/80 hidden">
+        <div id="p3-box" class="stats-box border-blue-900">
             <div class="flex justify-between"><span>P3 💀</span> <span id="p3-sanity">100</span></div>
             <div class="sanity-bar"><div id="p3-bar" class="sanity-fill bg-blue-600" style="width: 100%;"></div></div>
         </div>
-        <div id="p4-box" class="p-1 border border-purple-900 bg-black/80 hidden">
+        <div id="p4-box" class="stats-box border-purple-900">
             <div class="flex justify-between"><span>P4 🦇</span> <span id="p4-sanity">100</span></div>
             <div class="sanity-bar"><div id="p4-bar" class="sanity-fill bg-purple-600" style="width: 100%;"></div></div>
         </div>
@@ -198,12 +201,11 @@
 
     <div id="log"></div>
 
-    <!-- MODAL FÜR ALLES (Events, Kauf, Handel) -->
+    <!-- MODAL -->
     <div id="modal" class="overlay">
         <h2 id="modal-title" class="horror-title text-xl mb-4 text-red-500">TITEL</h2>
         <p id="modal-desc" class="mb-4 max-w-md px-4 text-gray-300 text-sm">Text...</p>
         
-        <!-- Input für Handel -->
         <div id="trade-input-area" class="hidden mb-4">
             <input type="number" id="trade-offer-input" placeholder="Sanity Angebot" class="bg-gray-800 border border-gray-500 text-white p-2 rounded w-32 text-center">
         </div>
@@ -241,8 +243,6 @@
             const pos = gridMap[i];
             cell.style.gridRow = pos[0] + 1;
             cell.style.gridColumn = pos[1] + 1;
-            
-            // Klick Event für Handel
             cell.onclick = () => handleCellClick(i);
 
             if (f.color) {
@@ -255,12 +255,11 @@
             board.appendChild(cell);
         });
 
-        // Tokens für 4 Spieler
+        // Tokens für 4 Spieler sicher erstellen
         [1,2,3,4].forEach(id => {
             const token = document.createElement('div');
             token.id = `token-${id}`;
             token.className = `player player-${id}`;
-            token.style.display = 'none'; // Erst unsichtbar
             token.innerText = ['👁','🕯','💀','🦇'][id-1];
             document.getElementById('board-container').appendChild(token);
         });
@@ -294,12 +293,11 @@
 
         socket.on('tradeRequest', (trade) => {
             if (myId === trade.targetId) {
-                // Ich bin der Verkäufer
                 const buyerId = trade.sourceId;
                 const propName = boardData[trade.propIdx].name;
                 showModal(
                     "HANDELSANGEBOT",
-                    `Spieler ${buyerId} bietet ${trade.offer} Sanity für ${propName}. Annehmen?`,
+                    `Spieler ${buyerId} bietet ${trade.offer} Sanity für ${propName}.`,
                     false,
                     [
                         { txt: "ANNEHMEN", cb: () => { socket.emit('respondTrade', {accepted:true}); closeModal(); }, col: "green" },
@@ -309,43 +307,44 @@
             }
         });
 
-        socket.on('showEvent', (data) => {
-            showModal(data.title, data.desc, false, [{ txt: "OK", cb: closeModal, col: "gray" }]);
-        });
-
         socket.on('updateState', (state) => {
             currentGameState = state;
             updateUI(state);
         });
 
         function updateUI(state) {
-            // Stats & Tokens
             state.players.forEach(p => {
                 const box = document.getElementById(`p${p.id}-box`);
                 const token = document.getElementById(`token-${p.id}`);
                 
                 if (p.active) {
-                    box.style.display = 'block';
-                    token.style.display = 'flex';
+                    box.style.display = 'block'; // Zeige Box
+                    
+                    // Markiere wer dran ist
+                    if (state.gameStarted && state.players[state.currentPlayerIdx].id === p.id) {
+                        box.classList.add('active-turn');
+                    } else {
+                        box.classList.remove('active-turn');
+                    }
+                    
+                    token.style.display = 'flex'; // Zeige Token
                     
                     document.getElementById(`p${p.id}-sanity`).innerText = Math.floor(p.sanity);
                     document.getElementById(`p${p.id}-bar`).style.width = Math.max(0, p.sanity) + '%';
 
-                    // Position berechnen (mit leichtem Offset damit Token nicht übereinander liegen)
                     const target = gridMap[p.pos];
                     const boardEl = document.getElementById('board');
                     const cellSize = boardEl.offsetWidth / 8;
-                    // Offset basierend auf ID
+                    
+                    // Offsets damit sie nicht übereinander liegen
                     const offX = (p.id === 1 || p.id === 3) ? -5 : 5;
                     const offY = (p.id === 1 || p.id === 2) ? -5 : 5;
 
                     token.style.top = (target[0] * cellSize + (cellSize/2) - (token.offsetHeight/2) + offY) + 'px';
                     token.style.left = (target[1] * cellSize + (cellSize/2) - (token.offsetWidth/2) + offX) + 'px';
 
-                    // Besitz Dots aktualisieren
                     p.owned.forEach(idx => {
-                        const dot = document.getElementById(`owner-${idx}`);
-                        dot.style.background = p.color;
+                        document.getElementById(`owner-${idx}`).style.background = p.color;
                     });
                 } else {
                     box.style.display = 'none';
@@ -363,7 +362,6 @@
                 return;
             }
 
-            // Zug Status
             if (state.turnPhase === 'TRADING') {
                 centerMsg.innerText = "Handel läuft...";
                 diceBtn.disabled = true;
@@ -377,9 +375,8 @@
                     centerMsg.style.color = "#888";
                     diceBtn.disabled = true;
                 }
-                closeModal(); // Schließt Modals vom vorherigen Zug
+                closeModal(); 
             } else if (state.turnPhase === 'DECISION' && myTurn) {
-                // Kauf Dialog
                 const fieldName = boardData[state.players[state.currentPlayerIdx].pos].name;
                 showModal(
                     "ORT VERSIEGELN?",
@@ -393,26 +390,21 @@
             }
         }
 
-        // --- INTERAKTION ---
-
         function handleCellClick(idx) {
-            // Darf ich handeln?
             if (!currentGameState || !currentGameState.gameStarted) return;
-            if (currentGameState.players[currentGameState.currentPlayerIdx].id !== myId) return; // Nicht mein Zug
+            if (currentGameState.players[currentGameState.currentPlayerIdx].id !== myId) return; 
             
-            // Gehört das Feld jemand anderem?
             const field = boardData[idx];
             if (field.type !== 'prop') return;
 
             const owner = currentGameState.players.find(p => p.owned.includes(idx));
             if (owner && owner.id !== myId) {
-                // Angebot Modal
                 showModal(
                     "ANGEBOT MACHEN",
                     `Biete Sanity für ${field.name} (Besitzer: P${owner.id})`,
-                    true, // Zeige Input
+                    true,
                     [
-                        { txt: "ANGEBOT SENDEN", cb: () => sendTradeOffer(idx), col: "blue" },
+                        { txt: "SENDEN", cb: () => sendTradeOffer(idx), col: "blue" },
                         { txt: "ABBRECHEN", cb: closeModal, col: "gray" }
                     ]
                 );
@@ -445,7 +437,6 @@
                     const btn = document.createElement('button');
                     btn.innerText = a.txt;
                     btn.onclick = a.cb;
-                    // Styling
                     let bg = a.col === 'green' ? 'bg-green-700' : (a.col === 'red' ? 'bg-red-700' : (a.col === 'blue' ? 'bg-blue-700' : 'bg-gray-700'));
                     btn.className = `px-4 py-2 text-xs rounded text-white border border-gray-500 ${bg} hover:brightness-125`;
                     actContainer.appendChild(btn);
@@ -454,10 +445,7 @@
             m.style.display = 'flex';
         }
 
-        function closeModal() {
-            document.getElementById('modal').style.display = 'none';
-        }
-
+        function closeModal() { document.getElementById('modal').style.display = 'none'; }
         function sendRoll() { socket.emit('rollDice'); }
     </script>
 </body>
