@@ -31,15 +31,10 @@
             z-index: 5; border: 1px solid #300; padding: 20px; text-align: center; position: relative;
         }
 
+        /* Branding */
         .branding-text {
-            font-family: 'Creepster', cursive;
-            color: #600;
-            font-size: 1.5rem;
-            margin-top: 10px;
-            text-shadow: 2px 2px 0 #000, 0 0 10px #f00;
-            opacity: 0.8;
-            letter-spacing: 2px;
-            transform: rotate(-5deg);
+            font-family: 'Creepster', cursive; color: #600; font-size: 1.5rem; margin-top: 10px;
+            text-shadow: 2px 2px 0 #000, 0 0 10px #f00; opacity: 0.8; letter-spacing: 2px; transform: rotate(-5deg);
         }
 
         .skull-svg { width: 30%; height: 30%; filter: drop-shadow(0 0 15px #f00); opacity: 0.6; margin-bottom: 5px; }
@@ -84,6 +79,7 @@
             padding: 8px; font-size: 0.75rem; color: #aaa;
         }
 
+        /* --- MODAL (Allgemein) --- */
         .overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.9); z-index: 9999; display: none;
@@ -106,19 +102,30 @@
         .trade-list-item { width: 100%; padding: 10px; margin: 5px 0; background: #222; border: 1px solid #444; cursor: pointer; display: flex; justify-content: space-between; }
         .trade-list-item:hover { background: #333; border-color: #888; }
         
-        /* LOGIN OVERLAY */
-        #login-overlay {
-            z-index: 20000; background: #000; display: flex;
+        /* --- LOGIN & RESTART OVERLAYS (Spezial) --- */
+        .special-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 20000; display: flex; /* Flex erzwingen */
+            flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; padding: 20px;
         }
     </style>
 </head>
 <body>
 
-    <!-- LOGIN SCREEN -->
-    <div id="login-overlay" class="overlay">
+    <!-- LOGIN SCREEN - MUSS SICHTBAR SEIN -->
+    <div id="login-overlay" class="special-overlay">
         <h1 class="horror-title text-4xl mb-8">WER BIST DU?</h1>
         <input type="text" id="player-name-input" placeholder="DEIN NAME" maxlength="12" class="bg-gray-900 border-2 border-red-900 text-white text-xl p-4 text-center rounded mb-6 w-64 focus:outline-none focus:border-red-500">
         <button onclick="startGame()" class="btn-dice text-2xl">BETRETEN</button>
+    </div>
+
+    <!-- RESTART SCREEN -->
+    <div id="restart-overlay" class="special-overlay" style="display:none; background: rgba(50,0,0,0.95);">
+        <h1 class="horror-title text-4xl mb-4 text-red-500">SPIEL VORBEI</h1>
+        <p id="winner-display" class="text-2xl text-white mb-8">SIEGER: ???</p>
+        <div class="text-xl text-gray-400">Neustart in</div>
+        <div id="restart-timer" class="text-6xl font-bold text-white my-4">10</div>
     </div>
 
     <button onclick="openTradeMenu()" class="btn-trade">SCHWARZMARKT</button>
@@ -162,27 +169,16 @@
             <div id="modal-actions" class="flex gap-2 flex-wrap justify-center"></div>
         </div>
     </div>
-    
-    <!-- RESTART OVERLAY -->
-    <div id="restart-overlay" class="overlay" style="background: rgba(50,0,0,0.95);">
-        <h1 class="horror-title text-4xl mb-4 text-red-500">SPIEL VORBEI</h1>
-        <p id="winner-display" class="text-2xl text-white mb-8">SIEGER: ???</p>
-        <div class="text-xl text-gray-400">Neustart in</div>
-        <div id="restart-timer" class="text-6xl font-bold text-white my-4">10</div>
-    </div>
 
     <script>
-        const socket = io({ autoConnect: false }); // Erst verbinden nach Login
+        const socket = io({ autoConnect: false }); 
         let myId = null;
         let currentGameState = null;
         let sessionId = localStorage.getItem('monopoly_session');
         if (!sessionId) { sessionId = Math.random().toString(36).substring(2); localStorage.setItem('monopoly_session', sessionId); }
 
-        // Check if name exists
         const savedName = localStorage.getItem('monopoly_name');
-        if (savedName) {
-            document.getElementById('player-name-input').value = savedName;
-        }
+        if (savedName) document.getElementById('player-name-input').value = savedName;
 
         function startGame() {
             const name = document.getElementById('player-name-input').value.trim() || "Unbekannt";
@@ -227,8 +223,7 @@
             myId = data.id; 
             document.getElementById('status-display').innerText = `Du bist ${localStorage.getItem('monopoly_name')} (P${myId})`; 
             document.getElementById('room-display').innerText = `Lobby: ${data.roomName}`;
-            // Wenn Name schon bekannt aber wir neu connecten, verstecke Overlay falls offen
-            document.getElementById('login-overlay').style.display = 'none';
+            document.getElementById('login-overlay').style.display = 'none'; // Sicherstellen dass es weg ist
         });
         
         socket.on('full', () => document.body.innerHTML = "<h1 style='color:red;text-align:center;'>SERVER VOLL</h1>");
@@ -277,8 +272,6 @@
 
         function updateUI(state) {
             document.querySelectorAll('.owner-dot').forEach(d => d.style.background = 'transparent');
-            
-            // Wenn Spiel neu gestartet wurde (Timer war auf 0)
             if (state.gameStarted && !state.gameEnded && document.getElementById('restart-overlay').style.display === 'flex') {
                 document.getElementById('restart-overlay').style.display = 'none';
             }
@@ -290,7 +283,6 @@
                 
                 if (p.active) {
                     box.style.display = 'block';
-                    // Name aktualisieren
                     nameLabel.innerText = p.name ? p.name.substring(0,8) : `P${p.id}`;
                     
                     if (p.eliminated) {
