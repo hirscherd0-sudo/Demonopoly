@@ -28,10 +28,21 @@
         #center-area {
             grid-column: 2 / 8; grid-row: 2 / 8; background: radial-gradient(circle, #1a0000 0%, #000 80%);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 5; border: 1px solid #300; padding: 20px; text-align: center;
+            z-index: 5; border: 1px solid #300; padding: 20px; text-align: center; position: relative;
         }
 
-        .skull-svg { width: 40%; height: 40%; filter: drop-shadow(0 0 15px #f00); opacity: 0.6; margin-bottom: 10px; }
+        .branding-text {
+            font-family: 'Creepster', cursive;
+            color: #600;
+            font-size: 1.5rem;
+            margin-top: 10px;
+            text-shadow: 2px 2px 0 #000, 0 0 10px #f00;
+            opacity: 0.8;
+            letter-spacing: 2px;
+            transform: rotate(-5deg);
+        }
+
+        .skull-svg { width: 30%; height: 30%; filter: drop-shadow(0 0 15px #f00); opacity: 0.6; margin-bottom: 5px; }
 
         .cell {
             background: #0d0d0d; border: 1px solid #222; display: flex; flex-direction: column;
@@ -94,9 +105,21 @@
         .stats-box.eliminated { opacity: 0.5; filter: grayscale(100%); }
         .trade-list-item { width: 100%; padding: 10px; margin: 5px 0; background: #222; border: 1px solid #444; cursor: pointer; display: flex; justify-content: space-between; }
         .trade-list-item:hover { background: #333; border-color: #888; }
+        
+        /* LOGIN OVERLAY */
+        #login-overlay {
+            z-index: 20000; background: #000; display: flex;
+        }
     </style>
 </head>
 <body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-overlay" class="overlay">
+        <h1 class="horror-title text-4xl mb-8">WER BIST DU?</h1>
+        <input type="text" id="player-name-input" placeholder="DEIN NAME" maxlength="12" class="bg-gray-900 border-2 border-red-900 text-white text-xl p-4 text-center rounded mb-6 w-64 focus:outline-none focus:border-red-500">
+        <button onclick="startGame()" class="btn-dice text-2xl">BETRETEN</button>
+    </div>
 
     <button onclick="openTradeMenu()" class="btn-trade">SCHWARZMARKT</button>
 
@@ -105,17 +128,18 @@
     <div id="room-display" class="text-[10px] text-gray-600 mb-1">Lobby: -</div>
 
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full max-w-[600px] mb-2 text-[10px] sm:text-xs">
-        <div id="p1-box" class="stats-box border-red-900"><div class="flex justify-between"><span>P1 👁</span> <span id="p1-sanity">100</span></div><div class="sanity-bar"><div id="p1-bar" class="sanity-fill bg-red-600" style="width: 100%;"></div></div></div>
-        <div id="p2-box" class="stats-box border-green-900"><div class="flex justify-between"><span>P2 🕯</span> <span id="p2-sanity">100</span></div><div class="sanity-bar"><div id="p2-bar" class="sanity-fill bg-green-500" style="width: 100%;"></div></div></div>
-        <div id="p3-box" class="stats-box border-blue-900"><div class="flex justify-between"><span>P3 💀</span> <span id="p3-sanity">100</span></div><div class="sanity-bar"><div id="p3-bar" class="sanity-fill bg-blue-600" style="width: 100%;"></div></div></div>
-        <div id="p4-box" class="stats-box border-purple-900"><div class="flex justify-between"><span>P4 🦇</span> <span id="p4-sanity">100</span></div><div class="sanity-bar"><div id="p4-bar" class="sanity-fill bg-purple-600" style="width: 100%;"></div></div></div>
+        <div id="p1-box" class="stats-box border-red-900"><div class="flex justify-between"><span id="p1-name">P1</span> <span id="p1-sanity">100</span></div><div class="sanity-bar"><div id="p1-bar" class="sanity-fill bg-red-600" style="width: 100%;"></div></div></div>
+        <div id="p2-box" class="stats-box border-green-900"><div class="flex justify-between"><span id="p2-name">P2</span> <span id="p2-sanity">100</span></div><div class="sanity-bar"><div id="p2-bar" class="sanity-fill bg-green-500" style="width: 100%;"></div></div></div>
+        <div id="p3-box" class="stats-box border-blue-900"><div class="flex justify-between"><span id="p3-name">P3</span> <span id="p3-sanity">100</span></div><div class="sanity-bar"><div id="p3-bar" class="sanity-fill bg-blue-600" style="width: 100%;"></div></div></div>
+        <div id="p4-box" class="stats-box border-purple-900"><div class="flex justify-between"><span id="p4-name">P4</span> <span id="p4-sanity">100</span></div><div class="sanity-bar"><div id="p4-bar" class="sanity-fill bg-purple-600" style="width: 100%;"></div></div></div>
     </div>
 
     <div id="board-container">
         <div id="board">
             <div id="center-area">
                 <svg class="skull-svg" viewBox="0 0 512 512"><path fill="#500" d="M256 16c-106 0-192 86-192 192 0 62 30 117 76 151l-20 73c-3 10 4 20 15 20h242c11 0 18-10 15-20l-20-73c46-34 76-89 76-151 0-106-86-192-192-192z"/></svg>
-                <div id="center-msg" class="text-xs text-red-500">Warte auf Spieler...</div>
+                <div class="branding-text">HIRSCHER<br>ENTERTAINMENT</div>
+                <div id="center-msg" class="text-xs text-red-500 mt-2">Warte auf Spieler...</div>
             </div>
         </div>
     </div>
@@ -138,13 +162,35 @@
             <div id="modal-actions" class="flex gap-2 flex-wrap justify-center"></div>
         </div>
     </div>
+    
+    <!-- RESTART OVERLAY -->
+    <div id="restart-overlay" class="overlay" style="background: rgba(50,0,0,0.95);">
+        <h1 class="horror-title text-4xl mb-4 text-red-500">SPIEL VORBEI</h1>
+        <p id="winner-display" class="text-2xl text-white mb-8">SIEGER: ???</p>
+        <div class="text-xl text-gray-400">Neustart in</div>
+        <div id="restart-timer" class="text-6xl font-bold text-white my-4">10</div>
+    </div>
 
     <script>
-        const socket = io();
+        const socket = io({ autoConnect: false }); // Erst verbinden nach Login
         let myId = null;
         let currentGameState = null;
         let sessionId = localStorage.getItem('monopoly_session');
         if (!sessionId) { sessionId = Math.random().toString(36).substring(2); localStorage.setItem('monopoly_session', sessionId); }
+
+        // Check if name exists
+        const savedName = localStorage.getItem('monopoly_name');
+        if (savedName) {
+            document.getElementById('player-name-input').value = savedName;
+        }
+
+        function startGame() {
+            const name = document.getElementById('player-name-input').value.trim() || "Unbekannt";
+            localStorage.setItem('monopoly_name', name);
+            document.getElementById('login-overlay').style.display = 'none';
+            socket.connect();
+            socket.emit('joinGame', { sessionId: sessionId, name: name });
+        }
 
         const boardData = [
             { name: "START", type: "start" }, { name: "Keller", color: "#300" }, { name: "Schicksal" }, { name: "Dachboden", color: "#300" },
@@ -176,12 +222,13 @@
         });
 
         // SOCKETS
-        socket.on('connect', () => socket.emit('joinGame', sessionId));
         
         socket.on('init', (data) => { 
             myId = data.id; 
-            document.getElementById('status-display').innerText = `Du bist Spieler ${myId}`; 
+            document.getElementById('status-display').innerText = `Du bist ${localStorage.getItem('monopoly_name')} (P${myId})`; 
             document.getElementById('room-display').innerText = `Lobby: ${data.roomName}`;
+            // Wenn Name schon bekannt aber wir neu connecten, verstecke Overlay falls offen
+            document.getElementById('login-overlay').style.display = 'none';
         });
         
         socket.on('full', () => document.body.innerHTML = "<h1 style='color:red;text-align:center;'>SERVER VOLL</h1>");
@@ -213,7 +260,15 @@
             }
         });
 
-        socket.on('gameOver', (data) => { if (data.loserId === myId) alert("DU BIST DEM WAHNSINN VERFALLEN!"); });
+        socket.on('gameOver', (data) => { 
+            document.getElementById('winner-display').innerText = `SIEGER: ${data.winnerName}`;
+            document.getElementById('restart-overlay').style.display = 'flex';
+        });
+        
+        socket.on('restartTimer', (time) => {
+            document.getElementById('restart-timer').innerText = time;
+            if(time <= 0) document.getElementById('restart-overlay').style.display = 'none';
+        });
 
         socket.on('updateState', (state) => {
             currentGameState = state;
@@ -222,11 +277,22 @@
 
         function updateUI(state) {
             document.querySelectorAll('.owner-dot').forEach(d => d.style.background = 'transparent');
+            
+            // Wenn Spiel neu gestartet wurde (Timer war auf 0)
+            if (state.gameStarted && !state.gameEnded && document.getElementById('restart-overlay').style.display === 'flex') {
+                document.getElementById('restart-overlay').style.display = 'none';
+            }
+
             state.players.forEach(p => {
                 const box = document.getElementById(`p${p.id}-box`);
                 const token = document.getElementById(`token-${p.id}`);
+                const nameLabel = document.getElementById(`p${p.id}-name`);
+                
                 if (p.active) {
                     box.style.display = 'block';
+                    // Name aktualisieren
+                    nameLabel.innerText = p.name ? p.name.substring(0,8) : `P${p.id}`;
+                    
                     if (p.eliminated) {
                         box.classList.add('eliminated'); document.getElementById(`p${p.id}-sanity`).innerText = "TOT"; token.style.display = 'none';
                     } else {
@@ -252,7 +318,8 @@
             if (!state.gameStarted) { centerMsg.innerText = "Warte..."; diceBtn.disabled = true; return; }
 
             if (state.turnPhase === 'ROLL') {
-                centerMsg.innerText = myTurn ? "DEIN ZUG" : `P${state.currentPlayerIdx+1}`;
+                const activePlayer = state.players[state.currentPlayerIdx];
+                centerMsg.innerText = myTurn ? "DEIN ZUG" : `${activePlayer.name} ist dran`;
                 centerMsg.style.color = myTurn ? "#0f0" : "#888";
                 diceBtn.disabled = !myTurn;
                 const content = document.getElementById('modal-content');
@@ -273,7 +340,7 @@
                 if(p.active && !p.eliminated && p.id !== myId) {
                     found = true;
                     const el = document.createElement('div'); el.className="trade-list-item";
-                    el.innerHTML=`<span>P${p.id}</span><span>Besitz: ${p.owned.length}</span>`;
+                    el.innerHTML=`<span>${p.name}</span><span>Besitz: ${p.owned.length}</span>`;
                     el.onclick=()=>showPProps(p); list.appendChild(el);
                 }
             });
@@ -287,7 +354,7 @@
                 const el = document.createElement('div'); el.className="trade-list-item";
                 el.innerText=boardData[idx].name; el.onclick=()=>showOffer(p.id, idx); list.appendChild(el);
             });
-            showModal(`P${p.id} BESITZ`, "Wähle Ort:", false, true, [{txt:"ZURÜCK",cb:openTradeMenu,col:"gray"}]);
+            showModal(`${p.name} BESITZ`, "Wähle Ort:", false, true, [{txt:"ZURÜCK",cb:openTradeMenu,col:"gray"}]);
         }
         function showOffer(tid, idx) {
             showModal("ANGEBOT", `Für ${boardData[idx].name}:`, true, false, 
